@@ -1,0 +1,10 @@
+{
+  "autodeskProduct": "Fusion",
+  "type": "script",
+  "author": "Arnaud Guedou",
+  "description": {
+    "": "Imprimante MSLA 10,1 pouces instrumentee : bras Z a cellule de charge, berceau ecran + bac sur 4 cellules"
+  },
+  "supportedOS": "windows|mac",
+  "editEnabled": true
+}
