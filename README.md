@@ -4,6 +4,8 @@ Simulations et outils de mesure.
 
 ## print/ : capteurs pour imprimante résine MSLA
 
+**Simulateur en ligne : https://kreuille.github.io/simulation-light/print/simulateur/**
+
 Instrumentation d'une imprimante 3D résine à écran LCD : mesure de la force pendant l'impression, détection des pannes (pièce décollée, supports cassés, résidu dans le bac, film détendu), vérification que la résine est immobile avant l'exposition, et contrôle du bac avant chaque impression.
 
 | Dossier | Contenu |
