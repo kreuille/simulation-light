@@ -175,6 +175,21 @@ Réglages du contrôle : `maintien <s>` (durée de l'attente en bas, 5 s par dé
 
 **Limite importante.** Le banc ne peut pas arrêter l'imprimante. Pendant le test, un très gros débris (plusieurs dixièmes de mm, dur) subit déjà toute la force du moteur avant que tu puisses réagir. Après une impression ratée, fais donc toujours une couche de nettoyage et filtre la résine avant de lancer le contrôle : le contrôle sert à trouver ce qui reste et qu'on ne voit pas.
 
+## 7 bis. Bac, résine et planéité (4 cellules sous le bac, `cells 5`)
+
+Une seule fois, **sans bac** : `tarevide` (zéro des 4 cellules). Puis pose le bac **vide** bien enclenché : `refbac` (poids et répartition de référence).
+
+| Commande | Ce qu'elle fait |
+|---|---|
+| `pesee` | présence du bac, coin mal enclenché, bac décalé, quantité de résine (ml) |
+| `fuite <min>` | pèse au début et à la fin (30 min par défaut), imprimante à l'arrêt ; alerte au-delà de 3 g perdus |
+| `densite <g/ml>` | densité de la résine (1,1 par défaut) |
+| `planeite` | analyse la prochaine descente lente du plateau vide (fichier de test du §7, 30 mm/min) |
+
+`planeite` donne le décalage du centre d'effort (dx, dy en mm) quand la somme des 4 cellules atteint 5 N et le côté le plus bas du plateau. Entre ces deux valeurs dans le convertisseur de la section « Bac, résine et planéité » du simulateur pour obtenir l'angle (résolution ≈ 0,02°). Le capteur du bras Z seul ne donne que l'ampleur, pas la direction.
+
+Limite : une couche polymérisée sur une pièce immergée ne change pas le poids du bac (poussée d'Archimède) ; la consommation se voit seulement quand la pièce sort de la résine.
+
 ## 8. Programme d'essais conseillé
 
 Note la température de la résine à chaque essai : c'est le paramètre qui change le plus les forces.

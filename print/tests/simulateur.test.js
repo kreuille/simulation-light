@@ -48,3 +48,18 @@ console.log(`${n} tests du simulateur passent.`);
   ok(vib.feats.tr[30].peak < 0.6 * base.feats.tr[30].peak, 'décollement par vibration : pic divisé par deux');
   console.log(`${n} tests du simulateur passent (avec profils type Reflex).`);
 }
+
+// bac, résine et planéité (4 cellules sous le bac)
+{
+  const vc = (o) => m.vatCheck(P(), Object.assign({ state: 'ok', resin: 400, leak: 0 }, o));
+  ok(!vc({ state: 'absent' }).present, 'bac absent détecté');
+  ok(vc({ state: 'leve' }).lifted === 1, 'coin avant droit mal enclenché identifié');
+  ok(vc({ state: 'decale' }).shifted, 'bac décalé détecté');
+  const r = vc({});
+  ok(Math.abs(r.resinEst - 400) <= r.resinUnc, 'quantité de résine estimée dans la marge annoncée');
+  ok(vc({ leak: 40 }).leakSeen, 'fuite de 40 ml/h détectée');
+  const pl = m.planarityTest(P(), { tilt: 0.1, dir: 1, v: 30 });
+  ok(Math.abs(pl.est.th - 0.1) <= 0.02 && pl.est.d === 1, 'inclinaison de 0,1° vers l\'avant droit retrouvée');
+  ok(m.planarityTest(P(), { tilt: 0, dir: 0, v: 30 }).est.th <= 0.02, 'plateau parallèle reconnu');
+  console.log(`${n} tests du simulateur passent (avec bac, résine et planéité).`);
+}

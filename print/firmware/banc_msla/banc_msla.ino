@@ -60,9 +60,13 @@ struct Config {
 // ------------------------- Contrôle du bac -------------------------
 const int CK_BINS = 61;                       // 0 à 3 mm au-dessus de l'arrêt, pas de 0,05 mm
 struct Ref { uint32_t magic = 0; float curve[5][CK_BINS]; float stat[5]; } ref;
+// pesée : zéro sans bac, poids et répartition du bac vide de référence
+const float GN = 0.00980665f;                  // newtons par gramme
+struct Weigh { uint32_t magic = 0; long emptyOff[5] = {0,0,0,0,0}; float vatG = 0; float share[4] = {0.25f,0.25f,0.25f,0.25f}; float density = 1.1f; } wg;
+
 enum CkState { CK_OFF, CK_WAIT, CK_DESC, CK_HOLD };
 CkState ck = CK_OFF;
-bool ckRefMode = false;
+int ckMode = 0;                               // 0 contrôle du bac, 1 référence, 2 planéité
 const int BUF = 1600;                         // 20 s de descente à 80 mesures/s
 float bz[BUF]; float bf[BUF][5]; int bn = 0, bhead = 0;
 float vHistT[9], vHistZ[9]; int vIdx = 0, vCount = 0;
@@ -136,6 +140,7 @@ void loadCfg() {
   prefs.begin("banc", true);
   if (prefs.getBytesLength("cfg") == sizeof(cfg)) prefs.getBytes("cfg", &cfg, sizeof(cfg));
   if (prefs.getBytesLength("ref") == sizeof(ref)) prefs.getBytes("ref", &ref, sizeof(ref));
+  if (prefs.getBytesLength("pesee") == sizeof(wg)) prefs.getBytes("pesee", &wg, sizeof(wg));
   prefs.end();
   dirInv = cfg.dirInvert;
 }
@@ -145,25 +150,94 @@ void saveRef() {
   prefs.end();
 }
 
-// ------------------------- Contrôle du bac : analyse -------------------------
-void ckArm(bool refMode) {
-  ckRefMode = refMode; ck = CK_WAIT; bn = 0; bhead = 0; stillSince = -1; holdN = 0;
-  for (int i = 0; i < 5; i++) holdAcc[i] = 0;
-  ledMode = 0;
-  Serial.println(refMode ? "# REFERENCE : en attente du test (bac propre)" : "# CONTROLE : en attente du test");
+// ------------------------- Pesée du bac et de la résine (4 cellules) -------------------------
+void saveWg() { prefs.begin("banc", false); prefs.putBytes("pesee", &wg, sizeof(wg)); prefs.end(); }
+// poids sur chaque coin, en grammes, depuis le zéro sans bac
+bool cornerGrams(float g[4], int n) {
+  long avg[5];
+  if (!hxAverage(avg, n)) return false;
+  for (int c = 0; c < 4; c++) g[c] = -(float)(avg[c + 1] - wg.emptyOff[c + 1]) / cfg.scale[c + 1] / GN;
+  return true;
 }
+void cmdPesee() {
+  if (cfg.nCells != 5 || wg.magic != 0xBAC0) { Serial.println("# PESEE : il faut les 4 cellules (cells 5) et un zero sans bac (tarevide)"); return; }
+  float g[4]; if (!cornerGrams(g, 160)) { Serial.println("# PESEE : lecture impossible"); return; }
+  float S = g[0] + g[1] + g[2] + g[3];
+  Serial.printf("# PESEE : coins %.0f / %.0f / %.0f / %.0f g (avant G, avant D, arriere D, arriere G), total %.0f g\n", g[0], g[1], g[2], g[3], S);
+  float minVat = wg.vatG > 0 ? 0.5f * wg.vatG : 100;
+  if (S < minVat) { Serial.println("# PESEE : pas de bac"); return; }
+  float sh[4], dev = 0, mn = 1; int imn = 0;
+  for (int c = 0; c < 4; c++) { sh[c] = g[c] / S; dev = fmaxf(dev, fabsf(sh[c] - wg.share[c])); if (sh[c] < mn) { mn = sh[c]; imn = c; } }
+  float cx = cfg.vatW * (sh[1] + sh[2]), cy = cfg.vatH * (sh[2] + sh[3]), off = hypotf(cx - cfg.vatW / 2, cy - cfg.vatH / 2);
+  const char* nom[4] = {"avant gauche", "avant droit", "arriere droit", "arriere gauche"};
+  if (dev > 0.06f && mn < 0.12f) Serial.printf("# PESEE : BAC MAL POSE, le coin %s ne porte que %.0f %% du poids\n", nom[imn], mn * 100);
+  else if (off > 3) Serial.printf("# PESEE : bac decale d'environ %.0f mm (centre x=%.0f y=%.0f mm)\n", off, cx, cy);
+  else Serial.printf("# PESEE : bac bien pose (ecart maximal %.1f %%)\n", dev * 100);
+  if (wg.vatG > 0) Serial.printf("# PESEE : resine estimee %.0f ml\n", (S - wg.vatG) / wg.density);
+  else Serial.println("# PESEE : lance « refbac » avec le bac VIDE bien pose pour connaitre le poids du bac");
+  ledMode = (dev > 0.06f && mn < 0.12f) ? 2 : 1; ledT0 = millis();
+}
+void cmdFuite(float minutes) {
+  if (cfg.nCells != 5 || wg.magic != 0xBAC0) { Serial.println("# FUITE : il faut les 4 cellules (cells 5) et un zero sans bac (tarevide)"); return; }
+  float g[4]; if (!cornerGrams(g, 160)) return;
+  float m0 = g[0] + g[1] + g[2] + g[3]; unsigned long t0 = millis(), last = t0;
+  Serial.printf("# FUITE : mesure pendant %.0f min, ne touche pas l'imprimante\n", minutes);
+  long r[5];
+  while (millis() - t0 < (unsigned long)(minutes * 60000)) {
+    hxWaitRead(r);                                // garde les HX711 actifs
+    if (millis() - last > 60000) { last = millis(); Serial.printf("# FUITE : %.0f min ecoulees\n", (last - t0) / 60000.0f); }
+  }
+  if (!cornerGrams(g, 160)) return;
+  float m1 = g[0] + g[1] + g[2] + g[3], lost = m0 - m1, rate = lost / wg.density / (minutes / 60);
+  Serial.printf("# FUITE : %.1f g perdus en %.0f min, soit %.1f ml/h%s\n", lost, minutes, rate, lost > 3 ? " : FUITE PROBABLE" : " : pas de fuite mesurable");
+}
+
+// ------------------------- Contrôle du bac : analyse -------------------------
 // échantillon n (0 = le plus ancien) du tampon circulaire
 static inline int bidx(int n) { return (bhead - bn + n + BUF) % BUF; }
 
+void ckArm(int mode) {
+  ckMode = mode; ck = CK_WAIT; bn = 0; bhead = 0; stillSince = -1; holdN = 0;
+  for (int i = 0; i < 5; i++) holdAcc[i] = 0;
+  ledMode = 0;
+  if (mode == 2 && cfg.nCells != 5) { Serial.println("# PLANEITE : il faut les 4 cellules du bac (cells 5)"); ck = CK_OFF; return; }
+  Serial.println(mode == 1 ? "# REFERENCE : en attente du test (bac propre)" : mode == 2 ? "# PLANEITE : en attente de la descente lente du plateau vide" : "# CONTROLE : en attente du test");
+}
+
+// Planéité : décalage du centre d'effort des 4 cellules quand leur somme atteint 5 N.
+// Le côté vers lequel il se décale est le côté le plus bas du plateau. Le simulateur convertit ce décalage en angle.
+void planeiteFinish(const float tare[5]) {
+  for (int n = 0; n < bn; n++) {
+    int k = bidx(n); float d[4], S = 0;
+    for (int c = 0; c < 4; c++) { d[c] = bf[k][c + 1] - tare[c + 1]; S += d[c]; }
+    if (fabsf(S) >= 5.0f) {
+      // moyenne sur les 16 mesures suivantes pour réduire le bruit
+      float a[4] = {0,0,0,0}; int m = 0;
+      for (int j = n; j < bn && m < 16; j++, m++) { int kk = bidx(j); for (int c = 0; c < 4; c++) a[c] += bf[kk][c + 1] - tare[c + 1]; }
+      S = a[0] + a[1] + a[2] + a[3];
+      float dx = cfg.vatW * (a[1] + a[2]) / S - cfg.vatW / 2, dy = cfg.vatH * (a[2] + a[3]) / S - cfg.vatH / 2;
+      const char* fb = dy < -4 ? "avant" : dy > 4 ? "arriere" : "";
+      const char* lr = dx < -4 ? "gauche" : dx > 4 ? "droit" : "";
+      Serial.printf("# PLANEITE : decalage du centre d'effort dx=%.1f mm dy=%.1f mm a 5 N, a %.2f mm de l'arret", dx, dy, bz[k] - zStop);
+      if (!fb[0] && !lr[0]) Serial.println(" : plateau parallele a l'ecran");
+      else Serial.printf(" : cote le plus bas %s%s%s (convertir en angle dans le simulateur)\n", fb, (fb[0] && lr[0]) ? " " : "", lr);
+      ck = CK_OFF; return;
+    }
+  }
+  Serial.println("# PLANEITE : la somme des 4 cellules n'a jamais atteint 5 N (descente trop rapide ou arret trop haut)");
+  ck = CK_OFF;
+}
+
 void ckFinish() {
   int nch = cfg.nCells;
-  if (holdN < 10) { Serial.println("# CONTROLE : maintien en bas trop court (augmente l'attente avant exposition du fichier de test)"); ck = CK_OFF; return; }
   // tare dans la résine : moyenne autour de zStop + 3 mm, pendant la descente
   float tare[5] = {0,0,0,0,0}; int tn = 0;
   for (int n = 0; n < bn; n++) { int k = bidx(n); float d = bz[k] - zStop;
     if (d <= 3.0f && d >= 2.75f) { for (int c = 0; c < nch; c++) tare[c] += bf[k][c]; tn++; } }
   if (tn == 0) { for (int n = 0; n < min(bn, 5); n++) { int k = bidx(n); for (int c = 0; c < nch; c++) tare[c] += bf[k][c]; tn++; } }
   for (int c = 0; c < nch; c++) tare[c] /= max(tn, 1);
+  if (ckMode == 2) { planeiteFinish(tare); return; }
+  if (holdN < 10) { Serial.println("# CONTROLE : maintien en bas trop court (augmente l'attente avant exposition du fichier de test)"); ck = CK_OFF; return; }
   // courbe de descente par tranches de 0,05 mm
   float curve[5][CK_BINS]; int cnt[CK_BINS];
   for (int b = 0; b < CK_BINS; b++) { cnt[b] = 0; for (int c = 0; c < 5; c++) curve[c][b] = 0; }
@@ -172,7 +246,7 @@ void ckFinish() {
   for (int b = 0; b < CK_BINS; b++) for (int c = 0; c < nch; c++) curve[c][b] = cnt[b] ? curve[c][b] / cnt[b] : NAN;
   float stat[5]; for (int c = 0; c < nch; c++) stat[c] = (float)(holdAcc[c] / holdN) - tare[c];
 
-  if (ckRefMode) {
+  if (ckMode == 1) {
     ref.magic = 0xB4C0;
     for (int c = 0; c < 5; c++) { ref.stat[c] = c < nch ? stat[c] : 0; for (int b = 0; b < CK_BINS; b++) ref.curve[c][b] = c < nch ? curve[c][b] : NAN; }
     saveRef();
@@ -264,6 +338,12 @@ void printHelp() {
   Serial.println(F("#  ref                  enregistre la reference pendant le prochain test (bac propre)"));
   Serial.println(F("#  controle             analyse le prochain test du bac et donne un verdict"));
   Serial.println(F("#  ack                  eteint la LED de residu"));
+  Serial.println(F("#  planeite             analyse la prochaine descente lente du plateau vide (cells 5)"));
+  Serial.println(F("#  tarevide             zero des 4 cellules SANS bac (une fois)"));
+  Serial.println(F("#  refbac               poids et repartition du bac VIDE bien pose"));
+  Serial.println(F("#  pesee                presence, positionnement du bac, quantite de resine"));
+  Serial.println(F("#  fuite <minutes>      mesure une fuite a l'arret (30 min par defaut)"));
+  Serial.println(F("#  densite <g/ml>       densite de la resine (1.1 par defaut)"));
   Serial.println(F("#  maintien <s>         duree d'attente en bas du fichier de test (defaut 5)"));
   Serial.println(F("#  seuils <appui> <descente>   seuils du controle en N (defaut 0.3 0.4)"));
   Serial.println(F("#  bac <largeur> <profondeur>  distance entre les cellules du bac en mm"));
@@ -317,8 +397,24 @@ void handleCommand(String line) {
       Serial.print("# "); for (int i = 0; i < cfg.nCells; i++) { Serial.print(r[i]); Serial.print(i + 1 < cfg.nCells ? " " : "\n"); } }
     streaming = was;
   }
-  else if (cmd == "ref") ckArm(true);
-  else if (cmd == "controle") ckArm(false);
+  else if (cmd == "ref") ckArm(1);
+  else if (cmd == "controle") ckArm(0);
+  else if (cmd == "planeite") ckArm(2);
+  else if (cmd == "tarevide") {
+    long avg[5];
+    if (cfg.nCells == 5 && hxAverage(avg, 80)) { for (int c = 0; c < 5; c++) wg.emptyOff[c] = avg[c]; wg.magic = 0xBAC0; saveWg(); Serial.println("# zero sans bac enregistre"); }
+    else Serial.println("# ERREUR : il faut les 4 cellules (cells 5), sans bac");
+  }
+  else if (cmd == "refbac") {
+    float g[4];
+    if (cfg.nCells == 5 && wg.magic == 0xBAC0 && cornerGrams(g, 160)) {
+      float S = g[0] + g[1] + g[2] + g[3]; wg.vatG = S; for (int c = 0; c < 4; c++) wg.share[c] = g[c] / S; saveWg();
+      Serial.printf("# bac vide de reference : %.0f g (%.0f / %.0f / %.0f / %.0f %%)\n", S, wg.share[0] * 100, wg.share[1] * 100, wg.share[2] * 100, wg.share[3] * 100);
+    } else Serial.println("# ERREUR : fais d'abord « tarevide », puis pose le bac VIDE et relance « refbac »");
+  }
+  else if (cmd == "pesee") cmdPesee();
+  else if (cmd == "fuite") { float m = arg.toFloat(); cmdFuite(m > 0 ? m : 30); }
+  else if (cmd == "densite") { float v = arg.toFloat(); if (v > 0.5f && v < 3) { wg.density = v; saveWg(); Serial.println("# ok"); } }
   else if (cmd == "ack") { ledMode = 0; Serial.println("# ok"); }
   else if (cmd == "maintien") { float v = arg.toFloat(); if (v >= 1) { cfg.holdS = v; saveCfg(); Serial.println("# ok"); } }
   else if (cmd == "seuils") { float a = arg.toFloat(), b = arg.substring(arg.indexOf(' ') + 1).toFloat(); if (a > 0 && b > 0) { cfg.ckStatN = a; cfg.ckDescN = b; saveCfg(); Serial.println("# ok"); } }

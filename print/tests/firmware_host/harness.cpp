@@ -13,7 +13,7 @@ int main(int argc, char** argv) {
   cfg.nCells = 5; cfg.vatW = 200; cfg.vatH = 125;
   for (int a = 1; a < argc; a++) {
     std::string fn = argv[a];
-    ckArm(fn.find("ref") != std::string::npos);
+    ckArm(fn.find("ref") != std::string::npos ? 1 : fn.find("plan") != std::string::npos ? 2 : 0);
     std::ifstream in(fn); std::string line; std::getline(in, line);
     while (std::getline(in, line)) {
       std::stringstream ss(line); float t, z, u, f[5]; char c;
