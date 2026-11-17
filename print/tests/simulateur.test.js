@@ -37,3 +37,14 @@ ok(Math.abs(F.fit.fepK.val - 21) < 1.5, 'raideur du film retrouvée');
 ok(Math.abs(F.fit.squeezeTau.val - 1.7) < 0.15, 'écoulement retrouvé');
 ok(Math.abs(F.fit.wait.val - 1.2) < 0.1, 'attente avant exposition retrouvée');
 console.log(`${n} tests du simulateur passent.`);
+
+// profils type HeyGears et fusion bras Z + bac
+{
+  const rrs = m.runAll(P({ machine: m.clone(m.MACHINES.rrs), scen: 'residue' }));
+  ok(rrs.ver.fus.first === 30 && rrs.ver.fus.fa === 0, 'fusion détecte le résidu (type Reflex RS)');
+  const base = m.runAll(P({ machine: m.clone(m.MACHINES.rf2) }));
+  const pm = m.clone(m.MACHINES.rf2); pm.pulse = 'oui';
+  const vib = m.runAll(P({ machine: pm }));
+  ok(vib.feats.tr[30].peak < 0.6 * base.feats.tr[30].peak, 'décollement par vibration : pic divisé par deux');
+  console.log(`${n} tests du simulateur passent (avec profils type Reflex).`);
+}
