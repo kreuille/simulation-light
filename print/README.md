@@ -9,6 +9,7 @@ Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à
 | `firmware/banc_msla/banc_msla.ino` | Programme de l'ESP32 : lecture des HX711, comptage des pas Z, capteur UV, envoi CSV, contrôle du bac, protocole carte mère |
 | `firmware/PROTOCOLE.md` | Protocole série (Serial2) entre le banc de mesure et la carte mère de l'imprimante |
 | `BOM.md` | Nomenclature du matériel (composants, câblage, budget) |
+| `docs/DETECTION_SPEC_EN.md` | Spécification complète de la détection en anglais (ASD-STE100) pour les ingénieurs de développement |
 | `outils/logger.py` | Enregistre les mesures de l'ESP32 dans un fichier CSV avec les métadonnées de l'essai |
 | `outils/layers_from_images.py` | Calcule la surface exposée de chaque couche à partir des images de couches du fichier tranché |
 | `exemples/enregistrement_exemple.csv` | Enregistrement synthétique (60 couches) pour tester la chaîne sans matériel |
