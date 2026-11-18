@@ -1,8 +1,11 @@
 # Lance tous les tests du projet à chaque commit et à chaque pull request.
 name: Tests
 
+# Sur une PR, seul l'événement pull_request déclenche les tests (pas de doublon avec push).
+# Les push directs ne lancent les tests que sur main.
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
