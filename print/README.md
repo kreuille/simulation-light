@@ -6,7 +6,8 @@ Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à
 
 | Fichier | Rôle |
 |---|---|
-| `firmware/banc_msla/banc_msla.ino` | Programme de l'ESP32 : lecture des HX711, comptage des pas Z, capteur UV, envoi CSV |
+| `firmware/banc_msla/banc_msla.ino` | Programme de l'ESP32 : lecture des HX711, comptage des pas Z, capteur UV, envoi CSV, contrôle du bac, protocole carte mère |
+| `firmware/PROTOCOLE.md` | Protocole série (Serial2) entre le banc de mesure et la carte mère de l'imprimante |
 | `outils/logger.py` | Enregistre les mesures de l'ESP32 dans un fichier CSV avec les métadonnées de l'essai |
 | `outils/layers_from_images.py` | Calcule la surface exposée de chaque couche à partir des images de couches du fichier tranché |
 | `exemples/enregistrement_exemple.csv` | Enregistrement synthétique (60 couches) pour tester la chaîne sans matériel |
@@ -260,6 +261,7 @@ Le simulateur accepte aussi un fichier sans les colonnes des coins, ou sans `fz_
 node tests/simulateur.test.js        # modèle, détection des pannes, contrôle du bac, recalage
 bash tests/lib/run.sh                # parité simulateur (JS) ↔ bibliothèque msla_detect (C++)
 bash tests/firmware_host/run.sh      # contrôle du bac du firmware, compilé sur PC (g++, python3, numpy)
+bash tests/protocole/run.sh          # protocole série carte mère ↔ banc (Serial2), compilé sur PC
 python3 tests/test_fusion_geometrie.py   # étude 10,1″ : géométrie du script Fusion 360
 ```
 

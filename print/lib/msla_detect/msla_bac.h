@@ -80,6 +80,7 @@ class BacControleur {
 
   bool actif() const { return ck_ != CK_OFF; }
   int  mode()  const { return ckMode_; }
+  void desarmer() { ck_ = CK_OFF; }     // annule un test en cours
 
   const ControleResultat&  controle()  const { return resCtrl_; }
   const ReferenceResultat& reference() const { return resRef_; }

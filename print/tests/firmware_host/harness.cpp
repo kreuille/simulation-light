@@ -2,6 +2,7 @@
 // Compilé et lancé par run.sh.
 #include "Arduino.h"
 SerialT Serial;
+SerialT Serial2;   // liaison carte mère (non utilisée par ce test ; n'écrit pas sur stdout)
 #define setup sketch_setup
 #define loop sketch_loop
 #include "../../firmware/banc_msla/banc_msla.ino"
@@ -10,6 +11,7 @@ SerialT Serial;
 #include <fstream>
 #include <sstream>
 int main(int argc, char** argv) {
+  Serial2.toStdout = false;   // ce test lit la sortie USB ; la liaison carte mère ne doit pas la polluer
   cfg.nCells = 5; cfg.vatW = 200; cfg.vatH = 125;
   for (int a = 1; a < argc; a++) {
     std::string fn = argv[a];

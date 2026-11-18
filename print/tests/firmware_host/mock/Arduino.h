@@ -31,7 +31,21 @@ class String { public: std::string s; String(){} String(const char*c):s(c){} Str
  long toInt()const{return atol(s.c_str());} float toFloat()const{return atof(s.c_str());}
  void toLowerCase(){for(auto&c:s)c=tolower(c);} size_t length()const{return s.size();}
  bool operator==(const char*c)const{return s==c;} String& operator+=(char c){s+=c;return *this;} };
-struct SerialT{ void begin(long){} void setRxBufferSize(int){} int available(){return 0;} int read(){return -1;}
- void print(const char*c){fputs(c,stdout);} void print(long v){printf("%ld",v);} void println(const char*c=""){puts(c);}
- void printf(const char*f,...){va_list a;va_start(a,f);vprintf(f,a);va_end(a);} };
+#define SERIAL_8N1 0x800001c
+// SerialT : port série simulé. Écrit sur la sortie standard (toStdout) et/ou dans
+// un tampon capturable (outbuf). Peut être alimenté en entrée via inbuf (test du
+// protocole série).
+struct SerialT{
+ std::string outbuf; bool toStdout=true;
+ std::string inbuf; size_t inpos=0;
+ void begin(long){} void begin(long,int,int,int){} void setRxBufferSize(int){}
+ int available(){return inpos<inbuf.size()?(int)(inbuf.size()-inpos):0;}
+ int read(){return inpos<inbuf.size()?(unsigned char)inbuf[inpos++]:-1;}
+ void feed(const char*s){inbuf+=s;}                 // ajoute des octets à lire
+ std::string drain(){std::string o=outbuf;outbuf.clear();return o;}   // récupère et vide la sortie
+ void emit(const std::string&s){outbuf+=s;if(toStdout)fputs(s.c_str(),stdout);}
+ void print(const char*c){emit(c);} void print(long v){char b[32];snprintf(b,sizeof b,"%ld",v);emit(b);}
+ void println(const char*c=""){emit(std::string(c)+"\n");}
+ void printf(const char*f,...){char b[256];va_list a;va_start(a,f);vsnprintf(b,sizeof b,f,a);va_end(a);emit(b);} };
 extern SerialT Serial;
+extern SerialT Serial2;

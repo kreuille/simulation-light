@@ -227,13 +227,71 @@ static void affichePlaneite(const msla::PlaneiteResultat& r) {
   else Serial.printf(" : cote le plus bas %s%s%s (convertir en angle dans le simulateur)\n", fb, (fb[0] && lr[0]) ? " " : "", lr);
 }
 
+// ------------------------- Protocole série avec la carte mère (Serial2) -------------------------
+// Voir firmware/PROTOCOLE.md. La carte mère est maître ; le banc répond et signale.
+int   protoLayer = -1;          // couche courante annoncée par la carte mère
+bool  protoUV = false;          // état UV annoncé
+bool  protoPaused = false;
+bool  protoVatPending = false;  // un « V » attend son verdict de bac
+bool  protoLayerFault = false;  // une alarme est survenue pendant la couche en cours
+String protoRx;
+
+void protocoleEnvoi(const char* s) { Serial2.println(s); }
+
+// Verdict de couche vers la carte mère. code == nullptr -> « OK <n> », sinon « <evt> <code> ».
+void protocoleVerdictCouche(int n, const char* evt, const char* code) {
+  char buf[40];
+  if (code) snprintf(buf, sizeof(buf), "%s %s", evt, code);
+  else snprintf(buf, sizeof(buf), "%s %d", evt, n);
+  protocoleEnvoi(buf);
+}
+
+// Résultat du contrôle du bac demandé par « V ».
+void protocoleVatResultat(const msla::ControleResultat& r) {
+  if (!protoVatPending) return;
+  protoVatPending = false;
+  if (r.erreur) protocoleEnvoi("VAT ERREUR");
+  else if (r.residu) protocoleEnvoi("VAT RESIDU");
+  else protocoleEnvoi("VAT OK");
+}
+
+void protocoleCommande(String ligne) {
+  ligne.trim();
+  if (!ligne.length()) return;
+  int sp = ligne.indexOf(' ');
+  String cmd = sp < 0 ? ligne : ligne.substring(0, sp);
+  String arg = sp < 0 ? String("") : ligne.substring(sp + 1);
+  cmd.toLowerCase();
+  if (cmd == "l") { protoLayer = arg.toInt(); protoLayerFault = false; }
+  else if (cmd == "u") {
+    bool on = arg.toInt() != 0;
+    if (protoUV && !on && !protoPaused)              // fin d'exposition : verdict de la couche
+      protocoleVerdictCouche(protoLayer, protoLayerFault ? "PAUSE" : "OK", protoLayerFault ? "FORCE" : nullptr);
+    protoUV = on;
+  }
+  else if (cmd == "v") { ckArm(0); protoVatPending = true; }
+  else if (cmd == "p") { protoPaused = true; }
+  else if (cmd == "r") { protoPaused = false; }
+  else if (cmd == "x") { bac.desarmer(); protoVatPending = false; protoLayer = -1; protoUV = false; protoPaused = false; }
+  else if (cmd == "?") { protocoleEnvoi("RDY"); }
+  else protocoleEnvoi("ERR");
+}
+
+void protocolePoll() {
+  while (Serial2.available()) {
+    char c = Serial2.read();
+    if (c == '\n' || c == '\r') { if (protoRx.length()) protocoleCommande(protoRx); protoRx = ""; }
+    else if (protoRx.length() < 32) protoRx += c;
+  }
+}
+
 void ckUpdate(float t, float z, const float f[5], bool uv) {
   msla::BacEvent ev = bac.maj(t, z, f, uv);
   if (ev == msla::BAC_RAS) return;
   if (bac.maintienCourt())
     Serial.printf("# CONTROLE : maintien reel %.1f s (plus court que %.1f s), analyse sur la fin disponible\n", bac.maintienReel(), cfg.holdS);
   switch (ev) {
-    case msla::BAC_EV_CONTROLE: afficheControle(bac.controle()); break;
+    case msla::BAC_EV_CONTROLE: afficheControle(bac.controle()); protocoleVatResultat(bac.controle()); break;
     case msla::BAC_EV_PLANEITE: affichePlaneite(bac.planeite()); break;
     case msla::BAC_EV_REFERENCE:
       saveRef();
@@ -372,18 +430,22 @@ void setup() {
   analogSetPinAttenuation(PIN_UV, ADC_11db);
   loadCfg();
   attachInterrupt(digitalPinToInterrupt(PIN_STEP), onStepEdge, RISING);
+  Serial2.begin(115200, SERIAL_8N1, 16, 17);   // liaison carte mère (voir firmware/PROTOCOLE.md)
   delay(300);
   Serial.println("# Banc de mesure MSLA pret. Tapez « aide ».");
   printInfo();
+  protocoleEnvoi("RDY");
 }
 
 String rx;
+bool alertPrev = false;
 void loop() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') { if (rx.length()) handleCommand(rx); rx = ""; }
     else if (rx.length() < 80) rx += c;
   }
+  protocolePoll();   // commandes de la carte mère (Serial2)
   // LED : clignotement « bac propre » 3 fois, fixe si résidu
   if (ledMode == 1) { unsigned long e = millis() - ledT0; if (e > 1500) ledMode = 0; else digitalWrite(PIN_ALERT, (e / 250) % 2 == 0); }
   else if (ledMode == 2) digitalWrite(PIN_ALERT, HIGH);
@@ -406,6 +468,9 @@ void loop() {
   float fmax = fabsf(f[0]);
   if (cfg.nCells == 5) { float s = f[1] + f[2] + f[3] + f[4]; fmax = fmaxf(fmax, fabsf(s)); }
   if (ledMode == 0) digitalWrite(PIN_ALERT, fmax > cfg.alertN ? HIGH : LOW);
+  bool alert = fmax > cfg.alertN;                       // alarme d'effort vers la carte mère
+  if (alert && !alertPrev) { protocoleEnvoi("ALRM FORCE"); protoLayerFault = true; }
+  alertPrev = alert;
   ckUpdate(t, z, f, uvState);
   if (!streaming) return;
 

@@ -37,6 +37,10 @@ jobs:
         working-directory: print
         run: bash tests/firmware_host/run.sh
 
+      - name: Protocole série carte mère (C++)
+        working-directory: print
+        run: bash tests/protocole/run.sh
+
       - name: Géométrie de l'étude 10,1″ (Python)
         working-directory: print
         run: python tests/test_fusion_geometrie.py
