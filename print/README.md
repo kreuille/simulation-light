@@ -12,7 +12,8 @@ Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à
 | `exemples/enregistrement_exemple.csv` | Enregistrement synthétique (60 couches) pour tester la chaîne sans matériel |
 | `exemples/couches_figurine.csv` | Fichier de couches correspondant à l'exemple |
 | `simulateur/index.html` | Simulateur capteurs résine MSLA (s'ouvre directement dans un navigateur, sans installation) |
-| `tests/` | Tests du simulateur (Node.js) et du contrôle du bac du firmware (sur PC) |
+| `lib/msla_detect/` | Bibliothèque C++ de détection (filtres, apprentissage par couche, stabilité, contrôle du bac, planéité, pesée, fuite), portable et sans allocation dynamique, utilisée par le firmware et les tests |
+| `tests/` | Tests du simulateur (Node.js), parité simulateur↔bibliothèque C++ et contrôle du bac du firmware (sur PC) |
 
 ## 1. Matériel
 
@@ -71,6 +72,8 @@ Cellule vers HX711 : rouge E+, noir E−, blanc A−, vert A+ (code le plus cour
 3. Ouvrir le moniteur série à 921600 bauds, fin de ligne « LF », taper `aide`.
 
 Si tu as changé une broche, modifie le bloc « Câblage » en tête du fichier. DIR doit rester sur une broche inférieure à 32.
+
+Le firmware partage sa logique de détection avec le simulateur via la bibliothèque `lib/msla_detect/`. L'IDE Arduino compile automatiquement le sous-dossier `firmware/banc_msla/src/`, qui pointe vers cette bibliothèque par un lien symbolique (`src/msla_detect → ../../lib/msla_detect`). Sous Windows, si le lien n'est pas suivi à l'extraction du dépôt, remplace `firmware/banc_msla/src/msla_detect` par une **copie** du dossier `lib/msla_detect`.
 
 | Commande | Effet |
 |---|---|
@@ -255,7 +258,11 @@ Le simulateur accepte aussi un fichier sans les colonnes des coins, ou sans `fz_
 
 ```
 node tests/simulateur.test.js        # modèle, détection des pannes, contrôle du bac, recalage
+bash tests/lib/run.sh                # parité simulateur (JS) ↔ bibliothèque msla_detect (C++)
 bash tests/firmware_host/run.sh      # contrôle du bac du firmware, compilé sur PC (g++, python3, numpy)
+python3 tests/test_fusion_geometrie.py   # étude 10,1″ : géométrie du script Fusion 360
 ```
 
-Le second test compile le code du firmware sur PC avec de fausses bibliothèques Arduino et lui fait analyser des enregistrements synthétiques : bac propre, résidus de 60, 100 et 300 µm, niveau de résine différent de la référence.
+Le test de parité fait exporter par le simulateur un jeu de scénarios (traces + verdict attendu) et vérifie que la bibliothèque C++ retrouve exactement les mêmes verdicts d'apprentissage par couche et les mêmes temps de stabilisation, sans aucune fausse alerte.
+
+Le test du firmware compile le firmware sur PC avec de fausses bibliothèques Arduino et lui fait analyser des enregistrements synthétiques : bac propre, résidus de 60, 100 et 300 µm, niveau de résine différent de la référence. Comme le firmware utilise désormais la bibliothèque `lib/msla_detect/`, ce test valide aussi le contrôle du bac de la bibliothèque.

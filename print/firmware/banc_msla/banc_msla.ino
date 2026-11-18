@@ -26,6 +26,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include "soc/gpio_reg.h"
+// Logique de détection partagée avec le simulateur et les tests (dossier src/ compilé
+// automatiquement par l'IDE Arduino ; lien vers ../../lib/msla_detect).
+#include "src/msla_detect/msla_detect.h"
 
 
 // ------------------------- Câblage (à adapter) -------------------------
@@ -57,23 +60,13 @@ struct Config {
   float layerMm     = 0.05;     // hauteur d'arrêt du test = épaisseur de la première couche (mm)
 } cfg;
 
-// ------------------------- Contrôle du bac -------------------------
-const int CK_BINS = 61;                       // 0 à 3 mm au-dessus de l'arrêt, pas de 0,05 mm
-struct Ref { uint32_t magic = 0; float curve[5][CK_BINS]; float stat[5]; } ref;
+// ------------------------- Contrôle du bac (bibliothèque msla_detect) -------------------------
+msla::BacRef ref{};                           // référence enregistrée (bac propre), persistée en Preferences
+msla::BacControleur bac;                      // contrôleur du bac en flux (état + tampons)
+int ledMode = 0; unsigned long ledT0 = 0;     // 0 normal, 1 clignote (bac propre), 2 fixe (résidu)
 // pesée : zéro sans bac, poids et répartition du bac vide de référence
 const float GN = 0.00980665f;                  // newtons par gramme
 struct Weigh { uint32_t magic = 0; long emptyOff[5] = {0,0,0,0,0}; float vatG = 0; float share[4] = {0.25f,0.25f,0.25f,0.25f}; float density = 1.1f; } wg;
-
-enum CkState { CK_OFF, CK_WAIT, CK_DESC, CK_HOLD };
-CkState ck = CK_OFF;
-int ckMode = 0;                               // 0 contrôle du bac, 1 référence, 2 planéité
-const int BUF = 1600;                         // 20 s de descente à 80 mesures/s
-float bz[BUF]; float bf[BUF][5]; int bn = 0, bhead = 0;
-float vHistT[9], vHistZ[9]; int vIdx = 0, vCount = 0;
-float stillSince = -1, zStop = 0, tStop = 0;
-double holdAcc[5]; int holdN = 0;
-int ledMode = 0; unsigned long ledT0 = 0;
-const int HB = 64; float hT[HB]; float hF[HB][5]; int hHead = 0, hCount = 0;    // 0 normal, 1 clignote (bac propre), 2 fixe (résidu)
 
 // ------------------------- État -------------------------
 volatile long stepCount = 0;
@@ -162,20 +155,18 @@ bool cornerGrams(float g[4], int n) {
 void cmdPesee() {
   if (cfg.nCells != 5 || wg.magic != 0xBAC0) { Serial.println("# PESEE : il faut les 4 cellules (cells 5) et un zero sans bac (tarevide)"); return; }
   float g[4]; if (!cornerGrams(g, 160)) { Serial.println("# PESEE : lecture impossible"); return; }
-  float S = g[0] + g[1] + g[2] + g[3];
-  Serial.printf("# PESEE : coins %.0f / %.0f / %.0f / %.0f g (avant G, avant D, arriere D, arriere G), total %.0f g\n", g[0], g[1], g[2], g[3], S);
-  float minVat = wg.vatG > 0 ? 0.5f * wg.vatG : 100;
-  if (S < minVat) { Serial.println("# PESEE : pas de bac"); return; }
-  float sh[4], dev = 0, mn = 1; int imn = 0;
-  for (int c = 0; c < 4; c++) { sh[c] = g[c] / S; dev = fmaxf(dev, fabsf(sh[c] - wg.share[c])); if (sh[c] < mn) { mn = sh[c]; imn = c; } }
-  float cx = cfg.vatW * (sh[1] + sh[2]), cy = cfg.vatH * (sh[2] + sh[3]), off = hypotf(cx - cfg.vatW / 2, cy - cfg.vatH / 2);
+  msla::PeseeConfig pc{cfg.vatW, cfg.vatH};
+  msla::PeseeRef pr{wg.vatG, {wg.share[0], wg.share[1], wg.share[2], wg.share[3]}, wg.density};
+  msla::PeseeResultat r = msla::analysePesee(g, pc, pr);
+  Serial.printf("# PESEE : coins %.0f / %.0f / %.0f / %.0f g (avant G, avant D, arriere D, arriere G), total %.0f g\n", g[0], g[1], g[2], g[3], r.total);
+  if (!r.present) { Serial.println("# PESEE : pas de bac"); return; }
   const char* nom[4] = {"avant gauche", "avant droit", "arriere droit", "arriere gauche"};
-  if (dev > 0.06f && mn < 0.12f) Serial.printf("# PESEE : BAC MAL POSE, le coin %s ne porte que %.0f %% du poids\n", nom[imn], mn * 100);
-  else if (off > 3) Serial.printf("# PESEE : bac decale d'environ %.0f mm (centre x=%.0f y=%.0f mm)\n", off, cx, cy);
-  else Serial.printf("# PESEE : bac bien pose (ecart maximal %.1f %%)\n", dev * 100);
-  if (wg.vatG > 0) Serial.printf("# PESEE : resine estimee %.0f ml\n", (S - wg.vatG) / wg.density);
+  if (r.malPose) Serial.printf("# PESEE : BAC MAL POSE, le coin %s ne porte que %.0f %% du poids\n", nom[r.coinFaible], r.sh[r.coinFaible] * 100);
+  else if (r.decale) Serial.printf("# PESEE : bac decale d'environ %.0f mm (centre x=%.0f y=%.0f mm)\n", r.off, r.cx, r.cy);
+  else Serial.printf("# PESEE : bac bien pose (ecart maximal %.1f %%)\n", r.dev * 100);
+  if (r.resineConnue) Serial.printf("# PESEE : resine estimee %.0f ml\n", r.resineMl);
   else Serial.println("# PESEE : lance « refbac » avec le bac VIDE bien pose pour connaitre le poids du bac");
-  ledMode = (dev > 0.06f && mn < 0.12f) ? 2 : 1; ledT0 = millis();
+  ledMode = r.malPose ? 2 : 1; ledT0 = millis();
 }
 void cmdFuite(float minutes) {
   if (cfg.nCells != 5 || wg.magic != 0xBAC0) { Serial.println("# FUITE : il faut les 4 cellules (cells 5) et un zero sans bac (tarevide)"); return; }
@@ -188,123 +179,67 @@ void cmdFuite(float minutes) {
     if (millis() - last > 60000) { last = millis(); Serial.printf("# FUITE : %.0f min ecoulees\n", (last - t0) / 60000.0f); }
   }
   if (!cornerGrams(g, 160)) return;
-  float m1 = g[0] + g[1] + g[2] + g[3], lost = m0 - m1, rate = lost / wg.density / (minutes / 60);
-  Serial.printf("# FUITE : %.1f g perdus en %.0f min, soit %.1f ml/h%s\n", lost, minutes, rate, lost > 3 ? " : FUITE PROBABLE" : " : pas de fuite mesurable");
+  float m1 = g[0] + g[1] + g[2] + g[3];
+  msla::FuiteResultat fr = msla::analyseFuite(m0, m1, wg.density, minutes);
+  Serial.printf("# FUITE : %.1f g perdus en %.0f min, soit %.1f ml/h%s\n", fr.lost, minutes, fr.rate, fr.fuiteProbable ? " : FUITE PROBABLE" : " : pas de fuite mesurable");
 }
 
-// ------------------------- Contrôle du bac : analyse -------------------------
-// échantillon n (0 = le plus ancien) du tampon circulaire
-static inline int bidx(int n) { return (bhead - bn + n + BUF) % BUF; }
+// ------------------------- Contrôle du bac : liaison avec la bibliothèque -------------------------
+// Construit la configuration de la bibliothèque à partir de la configuration du firmware.
+static msla::BacConfig bacConfig() {
+  return { cfg.nCells, cfg.holdS, cfg.ckStatN, cfg.ckDescN, cfg.vatW, cfg.vatH, cfg.zMaxN, cfg.layerMm };
+}
+bool ckEnCours() { return bac.actif(); }       // utilisé par loop() et le test hôte
 
 void ckArm(int mode) {
-  ckMode = mode; ck = CK_WAIT; bn = 0; bhead = 0; stillSince = -1; holdN = 0;
-  for (int i = 0; i < 5; i++) holdAcc[i] = 0;
   ledMode = 0;
-  if (mode == 2 && cfg.nCells != 5) { Serial.println("# PLANEITE : il faut les 4 cellules du bac (cells 5)"); ck = CK_OFF; return; }
-  Serial.println(mode == 1 ? "# REFERENCE : en attente du test (bac propre)" : mode == 2 ? "# PLANEITE : en attente de la descente lente du plateau vide" : "# CONTROLE : en attente du test");
+  if (bac.armer(mode, bacConfig(), &ref) == msla::BAC_ARM_ERR_PLANEITE_CELLS) {
+    Serial.println("# PLANEITE : il faut les 4 cellules du bac (cells 5)"); return;
+  }
+  Serial.println(mode == 1 ? "# REFERENCE : en attente du test (bac propre)"
+                 : mode == 2 ? "# PLANEITE : en attente de la descente lente du plateau vide"
+                 : "# CONTROLE : en attente du test");
 }
 
-// Planéité : décalage du centre d'effort des 4 cellules quand leur somme atteint 5 N.
-// Le côté vers lequel il se décale est le côté le plus bas du plateau. Le simulateur convertit ce décalage en angle.
-void planeiteFinish(const float tare[5]) {
-  for (int n = 0; n < bn; n++) {
-    int k = bidx(n); float d[4], S = 0;
-    for (int c = 0; c < 4; c++) { d[c] = bf[k][c + 1] - tare[c + 1]; S += d[c]; }
-    if (fabsf(S) >= 5.0f) {
-      // moyenne sur les 16 mesures suivantes pour réduire le bruit
-      float a[4] = {0,0,0,0}; int m = 0;
-      for (int j = n; j < bn && m < 16; j++, m++) { int kk = bidx(j); for (int c = 0; c < 4; c++) a[c] += bf[kk][c + 1] - tare[c + 1]; }
-      S = a[0] + a[1] + a[2] + a[3];
-      float dx = cfg.vatW * (a[1] + a[2]) / S - cfg.vatW / 2, dy = cfg.vatH * (a[2] + a[3]) / S - cfg.vatH / 2;
-      const char* fb = dy < -4 ? "avant" : dy > 4 ? "arriere" : "";
-      const char* lr = dx < -4 ? "gauche" : dx > 4 ? "droit" : "";
-      Serial.printf("# PLANEITE : decalage du centre d'effort dx=%.1f mm dy=%.1f mm a 5 N, a %.2f mm de l'arret", dx, dy, bz[k] - zStop);
-      if (!fb[0] && !lr[0]) Serial.println(" : plateau parallele a l'ecran");
-      else Serial.printf(" : cote le plus bas %s%s%s (convertir en angle dans le simulateur)\n", fb, (fb[0] && lr[0]) ? " " : "", lr);
-      ck = CK_OFF; return;
-    }
+static const char* risqueTexte(msla::BacRisque r) {
+  switch (r) {
+    case msla::RISQUE_DANGER: return "DANGER";
+    case msla::RISQUE_ELEVE:  return "eleve";
+    case msla::RISQUE_MODERE: return "modere";
+    default:                  return "aucun";
   }
-  Serial.println("# PLANEITE : la somme des 4 cellules n'a jamais atteint 5 N (descente trop rapide ou arret trop haut)");
-  ck = CK_OFF;
 }
-
-void ckFinish() {
-  int nch = cfg.nCells;
-  // tare dans la résine : moyenne autour de zStop + 3 mm, pendant la descente
-  float tare[5] = {0,0,0,0,0}; int tn = 0;
-  for (int n = 0; n < bn; n++) { int k = bidx(n); float d = bz[k] - zStop;
-    if (d <= 3.0f && d >= 2.75f) { for (int c = 0; c < nch; c++) tare[c] += bf[k][c]; tn++; } }
-  if (tn == 0) { for (int n = 0; n < min(bn, 5); n++) { int k = bidx(n); for (int c = 0; c < nch; c++) tare[c] += bf[k][c]; tn++; } }
-  for (int c = 0; c < nch; c++) tare[c] /= max(tn, 1);
-  if (ckMode == 2) { planeiteFinish(tare); return; }
-  if (holdN < 10) { Serial.println("# CONTROLE : maintien en bas trop court (augmente l'attente avant exposition du fichier de test)"); ck = CK_OFF; return; }
-  // courbe de descente par tranches de 0,05 mm
-  float curve[5][CK_BINS]; int cnt[CK_BINS];
-  for (int b = 0; b < CK_BINS; b++) { cnt[b] = 0; for (int c = 0; c < 5; c++) curve[c][b] = 0; }
-  for (int n = 0; n < bn; n++) { int k = bidx(n); float d = bz[k] - zStop; int b = (int)lroundf(d / 0.05f);
-    if (b >= 0 && b < CK_BINS) { for (int c = 0; c < nch; c++) curve[c][b] += bf[k][c] - tare[c]; cnt[b]++; } }
-  for (int b = 0; b < CK_BINS; b++) for (int c = 0; c < nch; c++) curve[c][b] = cnt[b] ? curve[c][b] / cnt[b] : NAN;
-  float stat[5]; for (int c = 0; c < nch; c++) stat[c] = (float)(holdAcc[c] / holdN) - tare[c];
-
-  if (ckMode == 1) {
-    ref.magic = 0xB4C0;
-    for (int c = 0; c < 5; c++) { ref.stat[c] = c < nch ? stat[c] : 0; for (int b = 0; b < CK_BINS; b++) ref.curve[c][b] = c < nch ? curve[c][b] : NAN; }
-    saveRef();
-    Serial.printf("# REFERENCE enregistree : appui de reference %.3f N\n", stat[0]);
-    ck = CK_OFF; return;
-  }
-  bool hasRef = ref.magic == 0xB4C0;
-  // contact pendant la descente : 2 tranches consécutives sous le seuil, en partant du haut
-  float zContact = -1; int run = 0;
-  for (int b = CK_BINS - 1; b >= 1; b--) {
-    float r = hasRef && !isnan(ref.curve[0][b]) ? ref.curve[0][b] : 0;
-    if (!isnan(curve[0][b]) && curve[0][b] - r < -cfg.ckDescN) { if (++run >= 2) { zContact = (b + 1) * 0.05f; break; } } else run = 0;
-  }
-  float appui = -(stat[0] - (hasRef ? ref.stat[0] : 0));
-  bool seen = appui > cfg.ckStatN || zContact >= 0;
-  const char* risque = !seen ? "aucun" : appui >= 0.9f * cfg.zMaxN ? "DANGER" : appui > 3 ? "eleve" : "modere";
-  Serial.printf("# CONTROLE %s : appui %.2f N", seen ? "RESIDU" : "OK", appui);
-  if (zContact >= 0) Serial.printf(", contact a %.2f mm au-dessus de l'arret (epaisseur estimee %.2f mm)", zContact, zContact + cfg.layerMm);
-  if (nch == 5) {
-    float dc[4], S = 0;
-    for (int c = 0; c < 4; c++) { dc[c] = -(stat[c + 1] - (hasRef ? ref.stat[c + 1] : 0)); S += dc[c]; }
-    if (S > 1.0f) Serial.printf(", position estimee x=%.0f y=%.0f mm", cfg.vatW * (dc[1] + dc[2]) / S, cfg.vatH * (dc[2] + dc[3]) / S);
-  }
-  Serial.printf(", risque %s%s\n", risque, hasRef ? "" : " (pas de reference : lance « ref » sur bac propre)");
-  ledMode = seen ? 2 : 1; ledT0 = millis();
-  ck = CK_OFF;
+static void afficheControle(const msla::ControleResultat& r) {
+  if (r.erreur) { Serial.println("# CONTROLE : maintien en bas trop court (augmente l'attente avant exposition du fichier de test)"); return; }
+  Serial.printf("# CONTROLE %s : appui %.2f N", r.residu ? "RESIDU" : "OK", r.appui);
+  if (r.contact) Serial.printf(", contact a %.2f mm au-dessus de l'arret (epaisseur estimee %.2f mm)", r.zContact, r.epaisseur);
+  if (cfg.nCells == 5 && r.position) Serial.printf(", position estimee x=%.0f y=%.0f mm", r.px, r.py);
+  Serial.printf(", risque %s%s\n", risqueTexte(r.risque), r.hasRef ? "" : " (pas de reference : lance « ref » sur bac propre)");
+  ledMode = r.residu ? 2 : 1; ledT0 = millis();
+}
+// Le côté vers lequel le centre d'effort se décale est le côté le plus bas du plateau.
+static void affichePlaneite(const msla::PlaneiteResultat& r) {
+  if (!r.atteint5N) { Serial.println("# PLANEITE : la somme des 4 cellules n'a jamais atteint 5 N (descente trop rapide ou arret trop haut)"); return; }
+  const char* fb = r.dy < -4 ? "avant" : r.dy > 4 ? "arriere" : "";
+  const char* lr = r.dx < -4 ? "gauche" : r.dx > 4 ? "droit" : "";
+  Serial.printf("# PLANEITE : decalage du centre d'effort dx=%.1f mm dy=%.1f mm a 5 N, a %.2f mm de l'arret", r.dx, r.dy, r.zA5N);
+  if (!fb[0] && !lr[0]) Serial.println(" : plateau parallele a l'ecran");
+  else Serial.printf(" : cote le plus bas %s%s%s (convertir en angle dans le simulateur)\n", fb, (fb[0] && lr[0]) ? " " : "", lr);
 }
 
 void ckUpdate(float t, float z, const float f[5], bool uv) {
-  if (ck == CK_OFF) return;
-  vHistT[vIdx] = t; vHistZ[vIdx] = z; vIdx = (vIdx + 1) % 9; if (vCount < 9) vCount++;
-  if (vCount < 9) return;
-  int old = vIdx;   // le plus ancien des 9
-  float dt = t - vHistT[old]; float v = dt > 0 ? (z - vHistZ[old]) / dt : 0;   // mm/s
-  if (ck == CK_WAIT) { if (v < -0.05f) { ck = CK_DESC; bn = 0; bhead = 0; stillSince = -1; } return; }
-  if (ck == CK_DESC) {
-    bz[bhead] = z; for (int c = 0; c < 5; c++) bf[bhead][c] = c < cfg.nCells ? f[c] : 0;
-    bhead = (bhead + 1) % BUF; if (bn < BUF) bn++;
-    if (v > 0.05f) { ck = CK_WAIT; return; }
-    if (fabsf(v) < 0.02f && !uv) { if (stillSince < 0) stillSince = t; if (t - stillSince > 0.3f) { ck = CK_HOLD; zStop = z; tStop = stillSince; hHead = 0; hCount = 0; } }
-    else stillSince = -1;
-    return;
-  }
-  if (ck == CK_HOLD) {
-    float h = t - tStop;
-    bool ended = uv || fabsf(v) > 0.05f || h > cfg.holdS;
-    if (!ended && h >= 1.0f) {                 // fenêtre glissante des 0,6 dernières secondes
-      hT[hHead] = t; for (int c = 0; c < 5; c++) hF[hHead][c] = c < cfg.nCells ? f[c] : 0;
-      hHead = (hHead + 1) % HB; if (hCount < HB) hCount++;
-    }
-    if (ended) {
-      float tEnd = hCount ? hT[(hHead - 1 + HB) % HB] : t;
-      holdN = 0; for (int c = 0; c < 5; c++) holdAcc[c] = 0;
-      for (int n = 0; n < hCount; n++) { int k = (hHead - 1 - n + HB) % HB; if (hT[k] < tEnd - 0.6f) break;
-        for (int c = 0; c < cfg.nCells; c++) holdAcc[c] += hF[k][c]; holdN++; }
-      if (h < cfg.holdS - 0.2f && holdN >= 10) Serial.printf("# CONTROLE : maintien reel %.1f s (plus court que %.1f s), analyse sur la fin disponible\n", h, cfg.holdS);
-      ckFinish();
-    }
+  msla::BacEvent ev = bac.maj(t, z, f, uv);
+  if (ev == msla::BAC_RAS) return;
+  if (bac.maintienCourt())
+    Serial.printf("# CONTROLE : maintien reel %.1f s (plus court que %.1f s), analyse sur la fin disponible\n", bac.maintienReel(), cfg.holdS);
+  switch (ev) {
+    case msla::BAC_EV_CONTROLE: afficheControle(bac.controle()); break;
+    case msla::BAC_EV_PLANEITE: affichePlaneite(bac.planeite()); break;
+    case msla::BAC_EV_REFERENCE:
+      saveRef();
+      Serial.printf("# REFERENCE enregistree : appui de reference %.3f N\n", bac.reference().appuiRef);
+      break;
+    default: break;
   }
 }
 
@@ -320,7 +255,7 @@ void printInfo() {
   for (int i = 0; i < cfg.nCells; i++)
     Serial.printf("# cellule %d : zero=%ld echelle=%.2f points/N\n", i, cfg.offset[i], cfg.scale[i]);
   Serial.printf("# z=%.3f mm (pas=%ld) uv_brut=%d\n", stepCount / cfg.stepsPerMm, (long)stepCount, analogRead(PIN_UV));
-  Serial.printf("# controle : maintien=%.1f s seuils=%.2f/%.2f N bac=%.0fx%.0f mm fmax=%.0f N reference=%s\n", cfg.holdS, cfg.ckStatN, cfg.ckDescN, cfg.vatW, cfg.vatH, cfg.zMaxN, ref.magic == 0xB4C0 ? "oui" : "non");
+  Serial.printf("# controle : maintien=%.1f s seuils=%.2f/%.2f N bac=%.0fx%.0f mm fmax=%.0f N reference=%s\n", cfg.holdS, cfg.ckStatN, cfg.ckDescN, cfg.vatW, cfg.vatH, cfg.zMaxN, ref.magic == msla::MSLA_REF_MAGIC ? "oui" : "non");
 }
 void printHelp() {
   Serial.println(F("# Commandes :"));
@@ -452,7 +387,7 @@ void loop() {
   // LED : clignotement « bac propre » 3 fois, fixe si résidu
   if (ledMode == 1) { unsigned long e = millis() - ledT0; if (e > 1500) ledMode = 0; else digitalWrite(PIN_ALERT, (e / 250) % 2 == 0); }
   else if (ledMode == 2) digitalWrite(PIN_ALERT, HIGH);
-  if (!streaming && ck == CK_OFF) return;
+  if (!streaming && !ckEnCours()) return;
   if (!hxAllReady()) return;
 
   long raw[5];

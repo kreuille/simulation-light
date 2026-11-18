@@ -20,7 +20,7 @@ int main(int argc, char** argv) {
       ss >> t >> c >> f[0] >> c >> f[1] >> c >> f[2] >> c >> f[3] >> c >> f[4] >> c >> z >> c >> u;
       ckUpdate(t, z, f, u > 0.5f);
     }
-    if (ck != CK_OFF) printf("# (fin du fichier sans verdict, etat=%d)\n", (int)ck);
+    if (ckEnCours()) printf("# (fin du fichier sans verdict, mode=%d)\n", bac.mode());
     printf("  <- %s\n", fn.c_str());
   }
 }

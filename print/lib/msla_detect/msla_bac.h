@@ -85,6 +85,10 @@ class BacControleur {
   const ReferenceResultat& reference() const { return resRef_; }
   const PlaneiteResultat&  planeite()  const { return resPlan_; }
 
+  // Avertissement « maintien plus court que prévu » du dernier verdict.
+  bool  maintienCourt() const { return maintienCourt_; }
+  float maintienReel()  const { return maintienReel_; }
+
  private:
   enum CkState { CK_OFF, CK_WAIT, CK_DESC, CK_HOLD };
   int bidx(int n) const { return (bhead_ - bn_ + n + MSLA_CK_BUF) % MSLA_CK_BUF; }
