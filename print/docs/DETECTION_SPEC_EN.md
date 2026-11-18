@@ -230,6 +230,96 @@ register function that works only below GPIO 32.
 **Warning:** For 80 SPS, cut the RATE pin of the HX711 (pin 15 of the chip) from ground
 and connect it to +3.3 V. If the RATE pin stays on ground, the rate is 10 SPS.
 
+### 6.1 Block diagram
+
+```mermaid
+flowchart LR
+  subgraph S[Sensors]
+    LZ["Z-arm load cell 20 kg"]
+    LC1["Corner cell 1 (front-left)"]
+    LC2["Corner cell 2 (front-right)"]
+    LC3["Corner cell 3 (rear-right)"]
+    LC4["Corner cell 4 (rear-left)"]
+    UV["UV sensor GUVA-S12SD"]
+  end
+  subgraph A[ADC modules]
+    HX0["HX711 #0"]
+    HX1["HX711 #1"]
+    HX2["HX711 #2"]
+    HX3["HX711 #3"]
+    HX4["HX711 #4"]
+  end
+  LZ --> HX0
+  LC1 --> HX1
+  LC2 --> HX2
+  LC3 --> HX3
+  LC4 --> HX4
+
+  ESP["ESP32-WROOM-32"]
+  HX0 -->|"DOUT GPIO19"| ESP
+  HX1 -->|"DOUT GPIO21"| ESP
+  HX2 -->|"DOUT GPIO22"| ESP
+  HX3 -->|"DOUT GPIO23"| ESP
+  HX4 -->|"DOUT GPIO25"| ESP
+  ESP -->|"SCK GPIO18 (common clock)"| A
+  UV -->|"GPIO34 (ADC)"| ESP
+
+  STEP["Printer STEP"] --> OPT1["6N137 #1"] -->|"GPIO26"| ESP
+  DIR["Printer DIR"] --> OPT2["6N137 #2"] -->|"GPIO27"| ESP
+
+  ESP -->|"USB 921600 baud (CSV)"| PC["PC / logger"]
+  ESP <-->|"Serial2 115200 GPIO16/17"| MB["Printer motherboard"]
+```
+
+Note: The 4 corner cells and their HX711 modules are the "Full" configuration only.
+
+### 6.2 Load cell and HX711 wiring
+
+Each load cell connects to its own HX711 module. All HX711 modules share the clock (SCK)
+and the power. Only the DOUT line is individual.
+
+```
+ Load cell                 HX711 module                 ESP32
+ ---------                 ------------                 -----
+ red   E+ -----------------> E+
+ black E- -----------------> E-
+ green A+ -----------------> A+
+ white A- -----------------> A-
+                            VCC <----------------------- 3V3
+                            GND <----------------------- GND
+                            SCK <----------------------- GPIO18   (common to all modules)
+                            DOUT -----------------------> GPIO19   (cell 0; 21/22/23/25 for 1..4)
+                            RATE ----------------------- +3V3      (for 80 SPS; see Warning above)
+```
+
+Caution: Check the wire colors against the data sheet of your load cell. The colors above
+are the most common code, but they change between suppliers.
+
+### 6.3 STEP and DIR optocoupler circuit
+
+Use one 6N137 for STEP and one for DIR. The two circuits are the same. The optocoupler
+keeps the printer side and the ESP32 side electrically separate.
+
+```
+   Printer side                     6N137 (DIP-8)                 ESP32 side
+   ------------                     -------------                 ----------
+                            +3V3 ---+--- [8] VCC
+                                    +--- [7] VE (enable)
+                                              |
+   STEP ---[330 ohm]--->|--- [2] anode        |          +3V3 ---[10k ohm]---+
+                            [3] cathode        |                              |
+                               |              [6] VO (output) ----------------+--- GPIO26 (STEP)
+   Printer GND ----------------+          [5] GND --- ESP32 GND
+```
+
+Pin function of the 6N137: 2 = anode, 3 = cathode, 5 = GND, 6 = output (open collector,
+needs the pull-up), 7 = enable (tie to VCC), 8 = VCC. Pin 1 is not used.
+
+For DIR, use the same circuit with the printer DIR signal and GPIO27.
+
+Caution: Keep DIR on GPIO27 (below GPIO32). The firmware reads DIR with a fast register
+function that works only below GPIO32.
+
 ---
 
 ## 7. Firmware and software
@@ -241,7 +331,9 @@ The software has two parts:
   uses the library.
 
 The library has no dynamic memory and no Arduino dependency. The same library runs on
-the ESP32 and on a PC for the tests. The library has these modules:
+the ESP32 and on a PC for the tests. For the software architecture, the public API, the
+data flow, the thresholds, and the extension points, see `docs/SOFTWARE_DEV_GUIDE.md`.
+The library has these modules:
 
 | Module | Function |
 |---|---|
