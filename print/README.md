@@ -269,6 +269,14 @@ python3 tests/test_fusion_geometrie.py   # étude 10,1″ : géométrie du scrip
 
 Le test `couche_live` rejoue les scénarios du simulateur à travers le chemin réel du firmware (commandes `L`/`U` de la carte mère + échantillons de force, le firmware déduisant lui-même les phases du mouvement Z) et vérifie que chaque défaut est signalé à la bonne couche, sans aucune fausse alerte sur une impression normale.
 
+Simulation de performance (outils d'analyse, hors CI, ~2 min) :
+
+```
+bash tests/perf/run.sh               # budget temps réel + coût de calcul + robustesse au bruit
+```
+
+`tests/perf/` chiffre le budget temps réel de la chaîne (HX711→ESP32, liaisons série), mesure le coût de calcul réel de la détection (pire cas vs période d'échantillonnage) et balaie le bruit du signal pour trouver la limite de détection. Les conclusions sont figées dans `tests/perf/RAPPORT.md`.
+
 Le test de parité fait exporter par le simulateur un jeu de scénarios (traces + verdict attendu) et vérifie que la bibliothèque C++ retrouve exactement les mêmes verdicts d'apprentissage par couche et les mêmes temps de stabilisation, sans aucune fausse alerte.
 
 Le test du firmware compile le firmware sur PC avec de fausses bibliothèques Arduino et lui fait analyser des enregistrements synthétiques : bac propre, résidus de 60, 100 et 300 µm, niveau de résine différent de la référence. Comme le firmware utilise désormais la bibliothèque `lib/msla_detect/`, ce test valide aussi le contrôle du bac de la bibliothèque.
