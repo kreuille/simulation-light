@@ -262,8 +262,11 @@ node tests/simulateur.test.js        # modèle, détection des pannes, contrôle
 bash tests/lib/run.sh                # parité simulateur (JS) ↔ bibliothèque msla_detect (C++)
 bash tests/firmware_host/run.sh      # contrôle du bac du firmware, compilé sur PC (g++, python3, numpy)
 bash tests/protocole/run.sh          # protocole série carte mère ↔ banc (Serial2), compilé sur PC
+bash tests/couche_live/run.sh        # détection par couche EN DIRECT du firmware, sur les scénarios du simulateur
 python3 tests/test_fusion_geometrie.py   # étude 10,1″ : géométrie du script Fusion 360
 ```
+
+Le test `couche_live` rejoue les scénarios du simulateur à travers le chemin réel du firmware (commandes `L`/`U` de la carte mère + échantillons de force, le firmware déduisant lui-même les phases du mouvement Z) et vérifie que chaque défaut est signalé à la bonne couche, sans aucune fausse alerte sur une impression normale.
 
 Le test de parité fait exporter par le simulateur un jeu de scénarios (traces + verdict attendu) et vérifie que la bibliothèque C++ retrouve exactement les mêmes verdicts d'apprentissage par couche et les mêmes temps de stabilisation, sans aucune fausse alerte.
 

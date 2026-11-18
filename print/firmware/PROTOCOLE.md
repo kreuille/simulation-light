@@ -26,13 +26,17 @@ Chaque trame = un mot-clé, éventuellement suivi d'arguments séparés par une 
 
 | Trame | Signification | Effet sur le banc |
 |---|---|---|
-| `L <n>` | début de la couche n (n ≥ 0) | couche courante = n, accumulation de couche réinitialisée |
-| `U 1` / `U 0` | UV allumé / éteint | état d'exposition mémorisé ; `U 0` clôt la couche et déclenche son verdict |
+| `L <n> [aire]` | début de la couche n (n ≥ 0) ; `aire` = surface exposée en mm² (optionnelle mais recommandée) | couche courante = n ; démarre la détection au premier `L` |
+| `U 1` / `U 0` | UV allumé / éteint | état d'exposition mémorisé (sert à déduire les phases) |
 | `V` | contrôler le bac avant impression | arme le contrôle du bac ; répond `VAT …` à la fin du test |
 | `P` | pause | passe en pause (suspend les verdicts de couche) |
 | `R` | reprise | sort de pause |
-| `X` | arrêt / fin d'impression | désarme tout, retour au repos |
+| `X` | arrêt / fin d'impression | finalise la dernière couche, désarme tout, retour au repos |
 | `?` | demande d'état | répond `RDY` |
+
+L'`aire` sert à comparer les couches entre elles (une grande surface arrache plus
+qu'une petite) : sans elle, la détection suppose une surface constante et devient
+moins fiable sur les pièces à géométrie variable. Le trancheur la connaît par couche.
 
 ## 3. Banc → carte mère (réponses et événements)
 
@@ -43,14 +47,26 @@ Chaque trame = un mot-clé, éventuellement suivi d'arguments séparés par une 
 | `VAT <code>` | après `V` | bac non conforme (`RESIDU`, `ERREUR`) : impression déconseillée |
 | `WAIT` | fin de descente, résine encore en mouvement | la carte mère doit retarder l'exposition *(réservé, cf. §6)* |
 | `GO` | résine stabilisée | l'exposition peut commencer *(réservé, cf. §6)* |
-| `OK <n>` | fin d'exposition de la couche n | couche saine |
-| `PAUSE <code>` | anomalie récupérable | demande de pause (inspection opérateur) |
-| `STOP <code>` | danger | demande d'arrêt immédiat |
-| `ALRM <code>` | événement capteur | `FORCE` (effort au-delà du seuil), `MUET` (HX711 sans réponse) |
+| `OK <n>` | couche n analysée, saine | — |
+| `PAUSE <code> <n>` | anomalie récupérable à la couche n | demande de pause (inspection opérateur) |
+| `STOP <code> <n>` | danger à la couche n | demande d'arrêt immédiat |
+| `ALRM <code>` | événement capteur | `FORCE` (effort au-delà du seuil) |
 | `ERR` | trame non reconnue | — |
 
-Codes de verdict de couche (repris de la bibliothèque `msla_detect`) :
-`FAIBLE`, `OBSTACLE`, `CRASH`, `APPUI`, `FEP`, et `FORCE` (seuil d'effort brut).
+Le verdict d'une couche est émis quand elle est finalisée (au début de l'arrachement
+de la couche suivante), ou pour la dernière couche sur `X`. Correspondance entre les
+drapeaux de la bibliothèque `msla_detect` et le verdict :
+
+| Drapeau | Signification | Verdict |
+|---|---|---|
+| `CRASH` | blocage / écrasement du moteur | `STOP CRASH <n>` |
+| `OBSTACLE` | obstacle à la descente | `STOP OBSTACLE <n>` |
+| `APPUI` | appui résiduel (corps étranger) | `PAUSE APPUI <n>` |
+| `FAIBLE` | arrachement trop faible (décollement probable) | `PAUSE FAIBLE <n>` |
+| `FEP` | film détendu | `PAUSE FEP <n>` |
+
+Les dangers (plateau bloqué ou qui écrase) donnent `STOP` ; les anomalies
+récupérables donnent `PAUSE`. La carte mère reste maître de la décision (cf. §4).
 
 ## 4. Machine à états de l'impression
 
@@ -70,37 +86,50 @@ Codes de verdict de couche (repris de la bibliothèque `msla_detect`) :
 
 - Après `V`, attendre `VAT …` au plus ~30 s (durée du test de descente). Au-delà :
   réessayer ou abandonner.
-- Verdict de couche (`OK`/`PAUSE`/`STOP`) émis dans les ~200 ms après `U 0`. S'il
-  manque avant la couche suivante, la carte mère considère la couche comme `OK`
-  (repli non bloquant) mais peut compter les silences.
+- Verdict d'une couche émis quand elle est finalisée (au début de l'arrachement de
+  la couche suivante). Une couche saine donne `OK <n>`, un défaut `PAUSE`/`STOP`.
+  La toute dernière couche est finalisée sur `X`.
 - Perte de liaison (silence du banc > 2 s pendant une impression) : la carte mère
   décide (continuer, ou mettre en pause par sécurité).
 
 ## 6. État de l'implémentation firmware
 
 Émis aujourd'hui par `banc_msla.ino` : `RDY`, `VAT OK`/`VAT RESIDU`/`VAT ERREUR`,
-`OK <n>`, `PAUSE FORCE`, `STOP FORCE`, `ALRM FORCE`, `ERR`.
+`OK <n>`, `PAUSE <code> <n>` et `STOP <code> <n>` (détection par couche par
+apprentissage : `CRASH`, `OBSTACLE`, `APPUI`, `FAIBLE`, `FEP`), `ALRM FORCE`, `ERR`.
 
-Réservé (défini par le protocole, pas encore émis par le firmware) : `WAIT`/`GO`
-(mise en attente de l'exposition tant que la résine n'est pas stabilisée) et les
-verdicts de couche issus de l'apprentissage par couche (`OBSTACLE`, `CRASH`,
-`FAIBLE`, `FEP`). La bibliothèque `msla_detect` contient déjà cette détection
-(validée par parité avec le simulateur) ; il reste à l'alimenter en continu,
-couche par couche, à partir du flux de mesure. Le point d'entrée est prévu
-(`protocoleVerdictCouche`).
+La détection par couche tourne en direct : le banc déduit les phases (descente,
+arrachement, exposition, attentes) du mouvement Z et de l'UV annoncés par la carte
+mère, construit les features de chaque couche et les passe au détecteur de la
+bibliothèque `msla_detect`. Le comportement est vérifié par le test
+`tests/couche_live` : sur les scénarios du simulateur, le défaut est signalé à la
+bonne couche, sans fausse alerte sur une impression normale.
+
+Réservé (défini par le protocole, pas encore émis) : `WAIT`/`GO`, mise en attente de
+l'exposition tant que la résine n'est pas stabilisée (la bibliothèque sait mesurer
+cette stabilisation, cf. `msla_stabilite` ; il reste à la câbler sur `Serial2`).
 
 ## 7. Exemple d'échange
 
 ```
 carte mère → banc    V
 banc → carte mère    VAT OK
-carte mère → banc    L 0
+carte mère → banc    L 0 18.0        (couche 0, 18 mm² exposés)
 carte mère → banc    U 1
 carte mère → banc    U 0
-banc → carte mère    OK 0
-carte mère → banc    L 1
+carte mère → banc    L 1 18.0
 carte mère → banc    U 1
+banc → carte mère    OK 0            (verdict de la couche 0, à l'arrachement de la 1)
 carte mère → banc    U 0
-banc → carte mère    STOP FORCE
+...
+carte mère → banc    L 30 2.0
+banc → carte mère    OK 29
+carte mère → banc    U 1
+...
+banc → carte mère    STOP OBSTACLE 30
 carte mère → banc    X
 ```
+
+Remarque sur le temps : le verdict de la couche n arrive pendant l'impression de la
+couche n+1 (dès son arrachement). La carte mère reçoit donc `STOP OBSTACLE 30`
+alors qu'elle commence la couche 31 ; à elle de couper l'UV et de remonter.

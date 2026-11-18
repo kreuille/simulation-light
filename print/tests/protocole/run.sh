@@ -14,8 +14,6 @@ echo "$out"
 check() { echo "$out" | grep -q -- "$1" || { echo "ECHEC : réponse « $1 » attendue"; exit 1; }; }
 check "A1 RDY"
 check "A2 ERR"
-check "A3 OK 5"
-check "A4 PAUSE FORCE"
 check "B VAT OK  <- .*b_propre.csv"
 check "B VAT RESIDU  <- .*c_100um.csv"
 check "B VAT OK  <- .*f_60um.csv"

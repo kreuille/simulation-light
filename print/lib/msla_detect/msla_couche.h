@@ -102,6 +102,61 @@ struct Verdict {
 // start = (scen=="normal") ? nLayers : L.
 Verdict verdict(const LayerFlags* flags, int nLayers, const char* scen, int L);
 
+/* ================= Détection en flux (pour le firmware) ================= */
+// Versions incrémentales de features/detect, pour tourner en direct couche par
+// couche sans tout bufferiser. Elles produisent des résultats IDENTIQUES aux
+// versions batch (validé par parité).
+
+#ifndef MSLA_SUIVI_BUF
+#define MSLA_SUIVI_BUF 1024   // échantillons bufferisés par couche pour les médianes (ph0, ph3)
+#endif
+
+// DetecteurCouche : apprentissage par couche en flux. On lui pousse les Feature
+// finalisées dans l'ordre croissant ; il renvoie les drapeaux de chaque couche,
+// identiques à detect().
+class DetecteurCouche {
+ public:
+  void init(const char* key, double nm, double obstacleMul, double lowRatio, double fstall);
+  LayerFlags pousser(const Feature& ft, double area);
+ private:
+  void ajouterBonne(const Feature& ft, double area);
+  Floor  fl_{};
+  bool   isSg_ = false;
+  double nm_ = 0, obstacleMul_ = 0, lowRatio_ = 0, fstall_ = 0;
+  Feature gFeat_[6]; double gArea_[6]; int gN_ = 0;   // fenêtre des 6 dernières bonnes couches
+  Feature sFeat_[4]; double sArea_[4]; int sN_ = 0;   // série « faible » en attente (ré-apprentissage)
+};
+
+// SuiviCouches : construit les Feature couche par couche à partir du flux
+// d'échantillons (force filtrée ff, position z, phase ph, couche ly), dans
+// l'ordre du simulateur (bloc 4→0→1→3→2). pousser() renvoie l'index de la couche
+// qui vient d'être finalisée (et remplit *out), ou -1 sinon. terminer() finalise
+// la dernière couche en cours. Résultats identiques à features().
+class SuiviCouches {
+ public:
+  void init();
+  // area = aire exposée de la couche ly (mm²). Quand une couche est finalisée, son
+  // aire est renvoyée dans *outArea (aire de la couche finalisée, pas de la courante).
+  int  pousser(double ff, double z, int ph, int ly, double area, Feature* out, double* outArea);
+  int  terminer(Feature* out, double* outArea);
+ private:
+  struct Acc {
+    int    ly = -1;
+    double area = 0;
+    double preBuf[MSLA_SUIVI_BUF]; int preN = 0; bool preFait = false, preData = false; double pre = 0;
+    double topBuf[MSLA_SUIVI_BUF]; int topN = 0; bool topFait = false; double top = 0;
+    double peak = 0, travel = 0; bool hasPeak = false;
+    double comp = 0; bool hasComp = false;
+  };
+  Acc  acc_[3];
+  Acc* slotPour(int ly);          // existant ou nouveau
+  Acc* slotExistant(int ly);
+  void ensurePre(Acc* a);
+  void ensureTop(Acc* a);
+  void finaliser(Acc* a, Acc* suivant, Feature* out, double* outArea);
+  void liberer(Acc* a);
+};
+
 }  // namespace msla
 
 #endif  // MSLA_COUCHE_H

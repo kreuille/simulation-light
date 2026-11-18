@@ -27,9 +27,7 @@ int main(int argc, char** argv) {
   // A. Commandes simples
   printf("A1 %s", echange("?\n").c_str());                       // attendu : RDY
   printf("A2 %s", echange("Z\n").c_str());                       // attendu : ERR
-  printf("A3 %s", echange("L 5\nU 1\nU 0\n").c_str());           // attendu : OK 5
-  echange("L 7\nU 1\n"); protoLayerFault = true;                 // simule une alarme pendant la couche
-  printf("A4 %s", echange("U 0\n").c_str());                     // attendu : PAUSE FORCE
+  // (les verdicts de couche OK/PAUSE/STOP sont testés par tests/couche_live)
 
   // Rejoue un fichier CSV dans ckUpdate (le contrôleur doit être armé au préalable).
   auto rejoue = [](const std::string& fn) {

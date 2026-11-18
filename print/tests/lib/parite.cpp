@@ -57,6 +57,31 @@ static void verifChannel2(const std::string& scenNom, const std::string& scen, i
   detect(feat.data(), area.data(), n, key.c_str(), nmDet, obstacleMul, lowRatio, fstall, flags.data());
   Verdict v = verdict(flags.data(), n, scen.c_str(), L);
 
+  // Parité des versions en flux (chaîne live du firmware).
+  auto egal = [](double a, double b) { return (std::isnan(a) && std::isnan(b)) || a == b; };
+  // 1) SuiviCouches doit reproduire features().
+  SuiviCouches suivi; suivi.init();
+  std::vector<Feature> sfeat(n);
+  for (int i = 0; i < n; i++) { sfeat[i].peak = sfeat[i].comp = sfeat[i].travel = sfeat[i].stat = absente(); }
+  Feature tmp; double aireTmp;
+  for (int k = 0; k < ns; k++) { int l = suivi.pousser(ff[k], z[k], ph[k], ly[k], area[ly[k]], &tmp, &aireTmp); if (l >= 0) sfeat[l] = tmp; }
+  { int l; while ((l = suivi.terminer(&tmp, &aireTmp)) >= 0) sfeat[l] = tmp; }
+  int fEch = 0;
+  for (int i = 0; i < n; i++)
+    if (!egal(sfeat[i].peak, feat[i].peak) || !egal(sfeat[i].comp, feat[i].comp) ||
+        !egal(sfeat[i].travel, feat[i].travel) || !egal(sfeat[i].stat, feat[i].stat)) fEch++;
+  if (fEch) { echecs++; std::printf("  ECHEC features flux %s/%s : %d couches divergentes\n", scenNom.c_str(), key.c_str(), fEch); }
+  // 2) DetecteurCouche doit reproduire les drapeaux de detect().
+  DetecteurCouche det; det.init(key.c_str(), nmDet, obstacleMul, lowRatio, fstall);
+  int dEch = 0;
+  for (int i = 0; i < n; i++) {
+    LayerFlags lf = det.pousser(feat[i], area[i]);
+    bool ok2 = lf.n == flags[i].n;
+    for (int j = 0; ok2 && j < lf.n; j++) ok2 = lf.f[j] == flags[i].f[j];
+    if (!ok2) dEch++;
+  }
+  if (dEch) { echecs++; std::printf("  ECHEC detecteur flux %s/%s : %d couches divergentes\n", scenNom.c_str(), key.c_str(), dEch); }
+
   const int cfirst = v.hasFirst ? v.first : -1;
   const std::string ckind = nomFlag(v.hasFirst ? v.kind : F_NODATA);
   const int clat = v.hasFirst ? v.lat : -1;

@@ -229,21 +229,87 @@ static void affichePlaneite(const msla::PlaneiteResultat& r) {
 
 // ------------------------- Protocole série avec la carte mère (Serial2) -------------------------
 // Voir firmware/PROTOCOLE.md. La carte mère est maître ; le banc répond et signale.
-int   protoLayer = -1;          // couche courante annoncée par la carte mère
-bool  protoUV = false;          // état UV annoncé
+int   protoLayer = -1;          // couche courante annoncée par la carte mère (« L n »)
+float protoArea = 0;            // aire exposée de la couche courante (mm²), « L n aire »
+bool  protoUV = false;          // état UV annoncé (« U 1 / U 0 »)
 bool  protoPaused = false;
 bool  protoVatPending = false;  // un « V » attend son verdict de bac
-bool  protoLayerFault = false;  // une alarme est survenue pendant la couche en cours
 String protoRx;
 
 void protocoleEnvoi(const char* s) { Serial2.println(s); }
 
-// Verdict de couche vers la carte mère. code == nullptr -> « OK <n> », sinon « <evt> <code> ».
+// Verdict de couche vers la carte mère : « OK <n> », « PAUSE <code> <n> » ou « STOP <code> <n> ».
 void protocoleVerdictCouche(int n, const char* evt, const char* code) {
-  char buf[40];
-  if (code) snprintf(buf, sizeof(buf), "%s %s", evt, code);
+  char buf[48];
+  if (code) snprintf(buf, sizeof(buf), "%s %s %d", evt, code, n);
   else snprintf(buf, sizeof(buf), "%s %d", evt, n);
   protocoleEnvoi(buf);
+}
+
+// ---- Détection par couche en direct (apprentissage, bibliothèque msla_detect) ----
+// La carte mère fournit la couche (« L ») et l'UV (« U ») ; le banc en déduit les phases
+// à partir du mouvement Z et alimente le détecteur couche par couche.
+bool  detActive = false;
+float detNoise = 1.0f, detObstacleMul = 2.5f, detLowRatio = 0.6f;   // calibration (défauts type figurine)
+float detAreaDefaut = 100.0f;                                       // aire si « L » sans aire
+msla::SuiviCouches    detSuivi;
+msla::DetecteurCouche detDet;
+int   detPrevLy = -1;                                              // pour détecter un changement de couche
+float detBF[3], detBZ[3], detBT[3], detBA[3]; bool detBUV[3]; int detBLy[3]; int detBN = 0;   // fenêtre med3
+
+static float med3f(float a, float b, float c) {
+  const float mn = a < b ? a : b, mx = a < b ? b : a;
+  const float m2 = mx < c ? mx : c;
+  return mn > m2 ? mn : m2;
+}
+void detDemarrer() {
+  detSuivi.init();
+  detDet.init("z", detNoise, detObstacleMul, detLowRatio, cfg.zMaxN);
+  detPrevLy = -1; detBN = 0; detActive = true;
+}
+// Traduit les drapeaux d'une couche en verdict protocole (danger -> STOP, anomalie -> PAUSE).
+void detFlux(const msla::Feature& ft, double area, int ly) {
+  msla::LayerFlags lf = detDet.pousser(ft, area > 0 ? area : detAreaDefaut);
+  const char* stop = nullptr; const char* pause = nullptr;
+  for (int j = 0; j < lf.n; j++) switch (lf.f[j]) {
+    case msla::F_CRASH:    stop = "CRASH"; break;
+    case msla::F_OBSTACLE: stop = "OBSTACLE"; break;
+    case msla::F_APPUI:    if (!pause) pause = "APPUI"; break;
+    case msla::F_FAIBLE:   if (!pause) pause = "FAIBLE"; break;
+    case msla::F_FEP:      if (!pause) pause = "FEP"; break;
+    default: break;
+  }
+  if (stop) protocoleVerdictCouche(ly, "STOP", stop);
+  else if (pause) protocoleVerdictCouche(ly, "PAUSE", pause);
+  else protocoleVerdictCouche(ly, "OK", nullptr);
+}
+// Un échantillon de mesure pendant l'impression. Filtre médian glissant (med3) sur la force,
+// phase déduite du mouvement Z et de l'UV, alimentation du suivi des couches.
+void detEchantillon(float t, float z, float f0) {
+  const float aEch = protoArea > 0 ? protoArea : detAreaDefaut;
+  // La fenêtre med3 ne doit pas chevaucher une frontière de couche (sinon la force
+  // d'une couche fuit dans la suivante). On la vide au changement de couche.
+  if (protoLayer != detPrevLy) { detBN = 0; detPrevLy = protoLayer; }
+  if (detBN < 3) { detBF[detBN]=f0; detBZ[detBN]=z; detBT[detBN]=t; detBUV[detBN]=protoUV; detBLy[detBN]=protoLayer; detBA[detBN]=aEch; detBN++; }
+  else {
+    for (int i = 1; i < 3; i++) { detBF[i-1]=detBF[i]; detBZ[i-1]=detBZ[i]; detBT[i-1]=detBT[i]; detBUV[i-1]=detBUV[i]; detBLy[i-1]=detBLy[i]; detBA[i-1]=detBA[i]; }
+    detBF[2]=f0; detBZ[2]=z; detBT[2]=t; detBUV[2]=protoUV; detBLy[2]=protoLayer; detBA[2]=aEch;
+  }
+  if (detBN < 3) return;
+  const float ff = med3f(detBF[0], detBF[1], detBF[2]);          // force filtrée du point milieu
+  const float dt = detBT[2] - detBT[0], v = dt > 0 ? (detBZ[2] - detBZ[0]) / dt : 0;
+  int ph;
+  if (v < -0.05f) ph = 2;                                        // descente (Z baisse)
+  else if (v > 0.05f) ph = 1;                                    // remontée / arrachement (Z monte)
+  else ph = detBUV[1] ? 0 : (detBZ[1] > 0.5f ? 3 : 4);          // immobile : exposition / attente haut (Z haut) / attente bas (Z bas)
+  if (detBLy[1] < 0) return;                                     // avant le premier « L »
+  msla::Feature ft; double aire = 0;
+  const int fin = detSuivi.pousser((double)ff, (double)detBZ[1], ph, detBLy[1], (double)detBA[1], &ft, &aire);
+  if (fin >= 0) detFlux(ft, aire, fin);
+}
+void detArreter() {
+  if (detActive) { msla::Feature ft; double aire; int l; while ((l = detSuivi.terminer(&ft, &aire)) >= 0) detFlux(ft, aire, l); }
+  detActive = false;
 }
 
 // Résultat du contrôle du bac demandé par « V ».
@@ -262,17 +328,17 @@ void protocoleCommande(String ligne) {
   String cmd = sp < 0 ? ligne : ligne.substring(0, sp);
   String arg = sp < 0 ? String("") : ligne.substring(sp + 1);
   cmd.toLowerCase();
-  if (cmd == "l") { protoLayer = arg.toInt(); protoLayerFault = false; }
-  else if (cmd == "u") {
-    bool on = arg.toInt() != 0;
-    if (protoUV && !on && !protoPaused)              // fin d'exposition : verdict de la couche
-      protocoleVerdictCouche(protoLayer, protoLayerFault ? "PAUSE" : "OK", protoLayerFault ? "FORCE" : nullptr);
-    protoUV = on;
+  if (cmd == "l") {
+    protoLayer = arg.toInt();
+    int sp2 = arg.indexOf(' ');
+    protoArea = sp2 < 0 ? 0 : arg.substring(sp2 + 1).toFloat();
+    if (!detActive) detDemarrer();
   }
+  else if (cmd == "u") { protoUV = arg.toInt() != 0; }
   else if (cmd == "v") { ckArm(0); protoVatPending = true; }
   else if (cmd == "p") { protoPaused = true; }
   else if (cmd == "r") { protoPaused = false; }
-  else if (cmd == "x") { bac.desarmer(); protoVatPending = false; protoLayer = -1; protoUV = false; protoPaused = false; }
+  else if (cmd == "x") { detArreter(); bac.desarmer(); protoVatPending = false; protoLayer = -1; protoArea = 0; protoUV = false; protoPaused = false; }
   else if (cmd == "?") { protocoleEnvoi("RDY"); }
   else protocoleEnvoi("ERR");
 }
@@ -449,7 +515,7 @@ void loop() {
   // LED : clignotement « bac propre » 3 fois, fixe si résidu
   if (ledMode == 1) { unsigned long e = millis() - ledT0; if (e > 1500) ledMode = 0; else digitalWrite(PIN_ALERT, (e / 250) % 2 == 0); }
   else if (ledMode == 2) digitalWrite(PIN_ALERT, HIGH);
-  if (!streaming && !ckEnCours()) return;
+  if (!streaming && !ckEnCours() && !detActive) return;
   if (!hxAllReady()) return;
 
   long raw[5];
@@ -468,10 +534,11 @@ void loop() {
   float fmax = fabsf(f[0]);
   if (cfg.nCells == 5) { float s = f[1] + f[2] + f[3] + f[4]; fmax = fmaxf(fmax, fabsf(s)); }
   if (ledMode == 0) digitalWrite(PIN_ALERT, fmax > cfg.alertN ? HIGH : LOW);
-  bool alert = fmax > cfg.alertN;                       // alarme d'effort vers la carte mère
-  if (alert && !alertPrev) { protocoleEnvoi("ALRM FORCE"); protoLayerFault = true; }
+  bool alert = fmax > cfg.alertN;                       // alarme d'effort immédiate vers la carte mère
+  if (alert && !alertPrev) protocoleEnvoi("ALRM FORCE");
   alertPrev = alert;
   ckUpdate(t, z, f, uvState);
+  if (detActive) detEchantillon(t, z, f[0]);            // détection par couche en direct
   if (!streaming) return;
 
   char buf[160];
