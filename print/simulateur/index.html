@@ -1635,7 +1635,7 @@ function initM3D(){
     const pp=M.parts[ly],ax=pp?pp.ax:0.3,bz=pp?pp.bz:0.3;
     // Résine : niveau FIXE dans le bac. La pièce se construit par le bas (immergée) et son sommet
     // émerge peu à peu quand elle grandit ; le plateau plonge / émerge à chaque cycle.
-    const restTop=(ly+1)*M.VLH,resinY=0.38;
+    const restTop=(ly+1)*M.VLH,resinY=0.14;
     const vwR=STATE.p.machine.vatW*M.SC*0.98,vhR=STATE.p.machine.vatH*M.SC*0.98;
     resin.scale.set(vwR,resinY+0.02,vhR);resin.position.set(0,(resinY-0.02)/2,0);
     resinSurf.scale.set(vwR,vhR,1);resinSurf.position.set(0,resinY,0);
