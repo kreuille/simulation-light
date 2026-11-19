@@ -138,6 +138,19 @@ m.AB.n = 1;
   ok(m.MACH.every(x => x.pub && x.est), 'chaque machine distingue valeurs publiées et valeurs estimées');
 }
 
+/* ---------- Préréglages ajustables : pas propre à chaque côté A / B ---------- */
+{
+  const base2 = { pitch: 34, gap: 0.35, glass: 0, gn: 1.52, gs: 0.3, div: 2, wl: 405, blocker: 0.3, dose: 2.3 };
+  ok(m.abFromMain().pitch === m.P.pitchL, 'abFromMain reprend le pas des pixels');
+  m.setPart('dent');
+  withP({ dmax: 20, tol: 50 }, () => {
+    const p34 = m.abPrint(base2), p21 = m.abPrint(Object.assign({}, base2, { pitch: 21 }));
+    ok(p34.pitch === 34 && p21.pitch === 21, 'chaque côté imprime avec son propre pas');
+    const m34 = m.abMap(base2, 600), m21 = m.abMap(Object.assign({}, base2, { pitch: 21 }), 600);
+    ok(m34.pt === 34 && m21.pt === 21, 'la carte du pixel utilise le pas du côté');
+  });
+}
+
 /* ---------- Modèle 3D synthétique ---------- */
 const mesh = m.genDentalMesh('arch');
 ok(mesh && mesh.pos.length > 3000 && mesh.idx.length % 3 === 0, 'arcade dentaire synthétique générée (' + mesh.idx.length / 3 + ' triangles)');
