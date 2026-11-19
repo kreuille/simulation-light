@@ -266,6 +266,7 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
         <button id="m3dstepf" title="phase suivante">⏭</button>
         <input id="m3dtime" type="range" min="0" max="1000" step="1" value="0" aria-label="Ligne de temps">
         <span id="m3dclock" class="mono"></span>
+        <button id="m3dscale" title="Échelle de l'oscilloscope : automatique ou fixe"></button>
       </div>
       <div class="m3d-ctl">
         <label><span id="m3dlayerlbl">Couche</span> <output id="m3dlayero"></output></label>
@@ -1036,6 +1037,8 @@ Object.assign(I18N,{
 "×Max":["×Max","×最大"],
 "Écran LCD simulé":["Simulated LCD screen","模拟 LCD 屏幕"],
 "Capteurs (live)":["Sensors (live)","传感器（实时）"],
+"Échelle auto":["Auto scale","自动刻度"],
+"Échelle fixe":["Fixed scale","固定刻度"],
 "carte mère : STOP couche {l} ({k})":["motherboard: STOP layer {l} ({k})","主板：STOP 第 {l} 层（{k}）"],
 "Three.js n'a pas pu être chargé : la vue 3D est indisponible, le reste du simulateur fonctionne.":["Three.js could not be loaded: the 3D view is unavailable, the rest of the simulator works.","无法加载 Three.js：3D 视图不可用，模拟器的其余部分正常工作。"]
 });
@@ -1540,7 +1543,7 @@ function initM3D(){
   const PH_NAME={4:'Attente en bas',0:'Exposition',1:'Arrachement',3:'Attente en haut',2:'Descente'};
   const FLAGLAB={crash:'blocage / écrasement',obstacle:'obstacle à la descente',appui:'appui résiduel (corps étranger)',faible:'arrachement trop faible',fep:'film détendu'};
   const FLAGCOL={crash:'#ff3b30',obstacle:'#ff9f0a',appui:'#ffd60a',faible:'#ff6482',fep:'#64d2ff'};
-  const M={tcur:0,totalT:0,playing:true,speed:10,nl:0,sig:'',SC:0.01,VLH:0.02,liftH:6,partCX:0,partCZ:0,fScale:20,faults:{},primary:null,parts:[],built:false,bound:false,speedBuilt:false,lastRAF:0,curI:0,curPh:4,curLy:0,cam:{az:0.8,el:0.34,rad:4.3},drag:null,lastW:0,lastH:0};
+  const M={tcur:0,totalT:0,playing:true,speed:10,nl:0,sig:'',SC:0.01,VLH:0.02,liftH:6,partCX:0,partCZ:0,fScale:20,fLo:-1,fHi:1,scaleFixed:false,faults:{},primary:null,parts:[],built:false,bound:false,speedBuilt:false,lastRAF:0,curI:0,curPh:4,curLy:0,cam:{az:0.8,el:0.34,rad:4.3},drag:null,lastW:0,lastH:0};
 
   // ---- recherches dans les séries ----
   function idx(t){const xs=STATE.sim.T;let lo=0,hi=xs.length-1;if(t<=xs[0])return 0;if(t>=xs[hi])return hi;while(hi-lo>1){const m=(lo+hi)>>1;if(xs[m]<=t)lo=m;else hi=m;}return lo;}
@@ -1694,10 +1697,14 @@ function initM3D(){
     const padL=5,padR=5,padT=13,padB=5,plotW=W-padL-padR,plotH=H-padT-padB;
     const X=t=>padL+(t-t0)/win*plotW;
     const i0=idx(t0),i1=idx(t1),fstep=Math.max(1,(i1-i0)/400|0);
-    let lo=1e9,hi=-1e9;
-    for(let i=i0;i<=i1;i+=fstep){const v=sim.F[i];if(v<lo)lo=v;if(v>hi)hi=v;}
-    const scan=ch=>{const xs=ch.t,fs=ch.f;for(let k=0;k<xs.length;k++){if(xs[k]<t0)continue;if(xs[k]>t1)break;if(fs[k]<lo)lo=fs[k];if(fs[k]>hi)hi=fs[k];}};
-    scan(STATE.s.zc);scan(STATE.s.vat);
+    let lo,hi;
+    if(M.scaleFixed){lo=M.fLo;hi=M.fHi;}                        // échelle fixe : amplitude de tout le tirage
+    else{                                                       // échelle auto : min/max de la fenêtre visible
+      lo=1e9;hi=-1e9;
+      for(let i=i0;i<=i1;i+=fstep){const v=sim.F[i];if(v<lo)lo=v;if(v>hi)hi=v;}
+      const scan=ch=>{const xs=ch.t,fs=ch.f;for(let k=0;k<xs.length;k++){if(xs[k]<t0)continue;if(xs[k]>t1)break;if(fs[k]<lo)lo=fs[k];if(fs[k]>hi)hi=fs[k];}};
+      scan(STATE.s.zc);scan(STATE.s.vat);
+    }
     if(!(hi>lo)){lo=-1;hi=1;}const pd=(hi-lo)*0.12+0.05;lo-=pd;hi+=pd;
     const Y=v=>padT+(1-(v-lo)/(hi-lo))*plotH;
     // bandes d'exposition UV (phase 0)
@@ -1762,6 +1769,7 @@ function initM3D(){
     setTxt('m3dlayerlbl',T('Couche'));
     setTxt('m3dlcdcap',T('Écran LCD simulé'));
     setTxt('m3dspeedlbl',T('Vitesse'));
+    const sc=$('m3dscale');if(sc){sc.textContent=T(M.scaleFixed?'Échelle fixe':'Échelle auto');sc.classList.toggle('on',M.scaleFixed);}
     const seg=$('m3dspeed');
     if(seg&&!M.speedBuilt){M.speedBuilt=true;seg.innerHTML='';for(const sp of SPEEDS){const b=document.createElement('button');b.textContent=sp[0]==='×Max'?T('×Max'):sp[0];b.dataset.v=sp[1];b.onclick=()=>{M.speed=(sp[1]==='max')?'max':+sp[1];M.lastRAF=0;markSpeed();};seg.appendChild(b);}markSpeed();}
     else if(seg){Array.prototype.forEach.call(seg.children,(b,i)=>{b.textContent=SPEEDS[i][0]==='×Max'?T('×Max'):SPEEDS[i][0];});}
@@ -1773,6 +1781,7 @@ function initM3D(){
     if(M.bound)return;M.bound=true;
     const pb=$('m3dplay');if(pb)pb.onclick=()=>{M.playing=!M.playing;M.lastRAF=0;upPlay();};
     const sf=$('m3dstepf'),sb=$('m3dstepb');if(sf)sf.onclick=()=>stepPhase(1);if(sb)sb.onclick=()=>stepPhase(-1);
+    const sc=$('m3dscale');if(sc)sc.onclick=()=>{M.scaleFixed=!M.scaleFixed;labels();};
     const tl=$('m3dtime');if(tl)tl.oninput=e=>{M.playing=false;upPlay();M.tcur=M.totalT*(+e.target.value/1000);};
     const ll=$('m3dlayer');if(ll)ll.oninput=e=>{M.playing=false;upPlay();const l=Math.max(0,Math.min(M.nl-1,+e.target.value));M.tcur=STATE.sim.T[STATE.sim.truth.start[l]]||0;};
     if(hasT&&cv){
@@ -1798,7 +1807,8 @@ function initM3D(){
     const part=sim.truth.part;
     M.partCX=(part.x-p.machine.vatW/2)*M.SC;
     M.partCZ=-(part.y-p.machine.vatH/2)*M.SC;
-    let mx=1;for(let i=0;i<sim.F.length;i+=9){const a=Math.abs(sim.F[i]);if(a>mx)mx=a;}M.fScale=Math.max(6,mx*1.05);
+    let mx=1,flo=0,fhi=0;for(let i=0;i<sim.F.length;i+=5){const v=sim.F[i],a=Math.abs(v);if(a>mx)mx=a;if(v<flo)flo=v;if(v>fhi)fhi=v;}
+    M.fScale=Math.max(6,mx*1.05);M.fLo=flo;M.fHi=Math.max(fhi,1);                 // amplitude de tout le tirage (échelle fixe)
     computeFaults();
     if(hasT&&M.built){
       const areaSig=M.nl+'|'+part.x.toFixed(1)+'|'+sim.truth.area[0]+'|'+sim.truth.area[M.nl-1]+'|'+M.SC.toFixed(5);
