@@ -546,7 +546,7 @@ function simulate(P){
   const k0=M.fepK*(tilt?0.3:1),kq=0.011,FST=M.fstall;let kc=180,resOff=false;
   const T=[],F=[],Z=[],V=[],PH=[],LY=[],PX=[],PY=[];
   const push=(t,f,z,v,ph,ly,px,py)=>{T.push(t);F.push(f);Z.push(z);V.push(v);PH.push(ph);LY.push(ly);PX.push(px);PY.push(py)};
-  let t=0,adhered=true,areaMul=1,fepK=k0,residue=0,resPos=null,cStatic=0,cSqueeze=0,lastPt={x:PART.x,y:PART.y},prevA=G.areas[0],prevSuc=0;
+  let t=0,adhered=true,areaMul=1,fepK=k0,residue=0,resPos=null,cStatic=0,cSqueeze=0,lastPt={x:PART.x,y:PART.y},prevA=G.areas[0],prevSuc=0,detachL=-1;
   const truth={stall:[],residuePos:null,area:G.areas.slice(),start:[],restStart:[],topStart:[],settleDown:[],settleTop:[],viscT:vT,part:PART};
   for(let i=0;i<n;i++){
     const A=G.areas[i],suc=G.suction?G.suction[i]||0:0,base=i<Q.baseLayers;
@@ -581,7 +581,7 @@ function simulate(P){
       push(t,f,z,vl,1,i,PART.x,PART.y);t+=DT;
     }
     if(st)truth.stall.push(i);
-    if(breakNow){adhered=false;kc=180;resOff=false;residue=0.5+(i+1)*Q.layerH;resPos={x:PART.x,y:PART.y};truth.residuePos=resPos}
+    if(breakNow){adhered=false;kc=180;resOff=false;residue=0.5+(i+1)*Q.layerH;resPos={x:PART.x,y:PART.y};truth.residuePos=resPos;detachL=i}
     // 3 : attente en haut (reflux + oscillation)
     const fEnd=f,tauF=0.3*vr400*R.squeezeTau*Math.sqrt(Math.max(A,0.5)/10)+0.05;
     truth.topStart.push(t);
@@ -589,7 +589,10 @@ function simulate(P){
     for(let tt=0;tt<Q.topWait;tt+=DT){push(t,fEnd*Math.exp(-tt/tauF)+0.25*fEnd*Math.exp(-tt/0.2)*Math.sin(2*Math.PI*5*tt),Q.liftH,0,3,i,PART.x,PART.y);t+=DT}
     // 2 : descente
     const vr=Q.vRet/60,Abot=adhered?A:0;let fsq=0,px=PART.x,py=PART.y,ds=false;
-    const reach=residue>0&&!(resOff&&i>=Q.baseLayers)?residue-Q.layerH:0;
+    // pièce décollée : le plateau remonte d'une couche à chaque cycle, il finit par ne plus toucher la pièce
+    // décollée -> le contact (et l'appui sur le bac) s'estompe sur quelques couches après le décollement.
+    const detFade=detachL>=0?Math.max(0,1-(i-detachL)/4):1;
+    const reach=(residue>0&&!(resOff&&i>=Q.baseLayers)?residue-Q.layerH:0)*detFade;
     for(let z=Q.liftH;z>0;z-=vr*DT){
       fsq=-kq*viscF*Abot*(vr/3)/((z+0.15)**2);
       const fc=(reach>0&&z<reach)?kc*(reach-z):0;
