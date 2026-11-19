@@ -1631,16 +1631,20 @@ function initM3D(){
   // compression/appui = s'enfonce), centrée sur la pièce. Montre en direct la flexion du film et son lien avec les courbes.
   function updateFEP(ax,bz){
     if(!fep||!M.fepBase)return;
-    const F=STATE.sim.F[M.curI],ph=M.curPh,z=STATE.sim.Z[M.curI];
-    const ref=Math.max(4,0.5*M.fScale);                         // référence = ~moitié de la force max de ce tirage
-    let target;
-    if(ph===1){                                                 // arrachement : le film suit la pièce vers le haut puis décolle (snap)
-      const prog=z/Math.max(M.liftH*0.25,1e-3);
-      target=prog<1?0.5*prog:0.5*Math.exp(-(prog-1)*3.2);
-    }else target=Math.max(-1,Math.min(0,F/ref))*0.5;            // compression / appui (obstacle) -> le film s'enfonce
-    M.fepAmp=(M.fepAmp||0)+(target-(M.fepAmp||0))*0.3;          // lissage : flexion lisible
+    const sim=STATE.sim,p=STATE.p,F=sim.F[M.curI],ph=M.curPh;
+    // Physique : le film est un ressort (f = fepK·z dans le modèle). Sa flèche élastique = F / fepK (mm),
+    // convertie à l'échelle verticale du plateau. Pendant l'arrachement, tant que la couche est collée,
+    // cette flèche vaut exactement le déplacement de la pièce/bras ; le film décolle quand la force chute.
+    const tilt=p.machine.release==='tilt';
+    const fepK=Math.max(2,(p.machine.fepK||25)*(tilt?0.3:1));   // raideur effective du film (N/mm) — propriété du film
+    const vScale=0.5/Math.max(M.liftH,1);                       // même échelle verticale que le mouvement du plateau
+    const pb=(sim.Z[M.curI]/Math.max(M.liftH,0.001))*0.5;       // déplacement réel pièce + bras + plateau
+    let target=(F/fepK)*vScale;                                 // flèche du film liée à la force et à la raideur
+    if(ph===1)target=Math.min(target,pb);                       // reste collé à la pièce (pas au-delà), puis décolle
+    target=Math.max(-0.1,Math.min(0.3,target));
+    M.fepAmp=(M.fepAmp||0)+(target-(M.fepAmp||0))*0.4;          // lissage léger
     const amp=M.fepAmp;
-    const sigma=Math.max(0.2,0.95*(ax+bz)),s2=2*sigma*sigma;    // largeur ~ empreinte de la pièce
+    const sigma=Math.max(0.18,0.9*(ax+bz)),s2=2*sigma*sigma;    // largeur ~ empreinte de la pièce
     const vw=M.vw||1,vh=M.vh||1,pos=fep.geometry.attributes.position,base=M.fepBase,n=pos.count;
     for(let i=0;i<n;i++){
       const wx=base[2*i]*vw-M.partCX,wz=-base[2*i+1]*vh-M.partCZ;
