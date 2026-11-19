@@ -1039,6 +1039,10 @@ Object.assign(I18N,{
 "Capteurs (live)":["Sensors (live)","传感器（实时）"],
 "Échelle auto":["Auto scale","自动刻度"],
 "Échelle fixe":["Fixed scale","固定刻度"],
+"Plateau au contact de la résine":["Plate touching the resin","平台接触树脂"],
+"Surface de la pièce au contact de la résine":["Part surface touching the resin","打印件表面接触树脂"],
+"Pièce immergée dans la résine":["Part immersed in the resin","打印件浸入树脂"],
+"Pièce émergée de la résine":["Part out of the resin","打印件露出树脂"],
 "carte mère : STOP couche {l} ({k})":["motherboard: STOP layer {l} ({k})","主板：STOP 第 {l} 层（{k}）"],
 "Three.js n'a pas pu être chargé : la vue 3D est indisponible, le reste du simulateur fonctionne.":["Three.js could not be loaded: the 3D view is unavailable, the rest of the simulator works.","无法加载 Three.js：3D 视图不可用，模拟器的其余部分正常工作。"]
 });
@@ -1553,7 +1557,7 @@ function initM3D(){
   function setTxt(id,t){const e=$(id);if(e)e.textContent=t;}
 
   // ---- scène Three.js ----
-  let renderer,scene,camera,screenMesh,lcdMesh,platform,arm,pillar,uvLight,partGroup,vatGrp,boxGeo,cylGeo,fep;
+  let renderer,scene,camera,screenMesh,lcdMesh,platform,arm,pillar,uvLight,partGroup,vatGrp,boxGeo,cylGeo,fep,resin,resinSurf,ripple;
   function buildScene(){
     renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});
     renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
@@ -1583,6 +1587,10 @@ function initM3D(){
     arm=new THREE.Mesh(boxGeo,new THREE.MeshStandardMaterial({color:0x3a465e,roughness:0.6}));scene.add(arm);
     platform=new THREE.Mesh(boxGeo,new THREE.MeshStandardMaterial({color:0xc9d3e8,metalness:0.2,roughness:0.3,transparent:true,opacity:0.2,depthWrite:false}));scene.add(platform); // très transparent : on voit la pièce, le film et l'écran dessous
     partGroup=new THREE.Group();scene.add(partGroup);
+    // résine : liquide ambré dans le bac + surface, et anneau (ride) qui apparaît au contact
+    resin=new THREE.Mesh(boxGeo,new THREE.MeshStandardMaterial({color:0xffb347,transparent:true,opacity:0.2,roughness:0.3,metalness:0,depthWrite:false}));scene.add(resin);
+    resinSurf=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshStandardMaterial({color:0xffc864,emissive:0x5a3708,emissiveIntensity:0.35,transparent:true,opacity:0.45,roughness:0.12,metalness:0.2,side:THREE.DoubleSide}));resinSurf.rotation.x=-Math.PI/2;scene.add(resinSurf);
+    ripple=new THREE.Mesh(new THREE.RingGeometry(0.72,1,40),new THREE.MeshBasicMaterial({color:0xfff0c0,transparent:true,opacity:0,side:THREE.DoubleSide}));ripple.rotation.x=-Math.PI/2;scene.add(ripple);
     M.built=true;
   }
   function rebuildPart(){
@@ -1626,6 +1634,22 @@ function initM3D(){
     em.emissiveIntensity+=(on*1.0-em.emissiveIntensity)*0.25;
     uvLight.intensity+=(on*1.3-uvLight.intensity)*0.25;
     const pp=M.parts[ly],ax=pp?pp.ax:0.3,bz=pp?pp.bz:0.3;
+    // Résine : niveau maintenu au-dessus de la pièce au repos ; pièce et plateau y plongent / en émergent.
+    const restTop=(ly+1)*M.VLH,resinY=restTop+0.05;
+    const vwR=STATE.p.machine.vatW*M.SC*0.98,vhR=STATE.p.machine.vatH*M.SC*0.98;
+    resin.scale.set(vwR,resinY+0.02,vhR);resin.position.set(0,(resinY-0.02)/2,0);
+    resinSurf.scale.set(vwR,vhR,1);resinSurf.position.set(0,resinY,0);
+    const partTopY=pb+restTop,platBotY=topY+0.03,eps=0.028;      // contacts avec la surface de résine
+    M.partSub=partTopY<resinY+0.004;
+    let contact=null;
+    if(Math.abs(platBotY-resinY)<eps)contact='plateau';
+    else if(Math.abs(partTopY-resinY)<eps)contact='piece';
+    if(contact)M.ripT=1;
+    M.ripT=(M.ripT||0)*0.9;                                      // la ride s'estompe
+    ripple.position.set(M.partCX,resinY+0.003,M.partCZ);
+    const rs=1+(1-M.ripT)*1.4;ripple.scale.set((ax+0.06)*rs,(bz+0.06)*rs,1);
+    ripple.material.opacity=M.ripT*0.7;
+    M.resinContact=contact;
     lcdMesh.scale.set(ax*2,bz*2,1);lcdMesh.position.set(M.partCX,0.02,M.partCZ);
     lcdMesh.material.opacity+=((on?0.92:0)-lcdMesh.material.opacity)*0.25;
     updateFEP(ax,bz);
@@ -1664,8 +1688,10 @@ function initM3D(){
   function updateHUD(){
     const sim=STATE.sim,ly=M.curLy,ph=M.curPh;
     setTxt('m3dinfo','');
+    const rc=M.resinContact?(M.resinContact==='plateau'?T('Plateau au contact de la résine'):T('Surface de la pièce au contact de la résine')):(M.partSub?T('Pièce immergée dans la résine'):T('Pièce émergée de la résine'));
     $('m3dinfo').innerHTML='<div><b>'+cap(T('couche {l}',{l:ly+1}))+' / '+M.nl+'</b></div>'+
-      '<div>'+T(PH_NAME[ph]||'')+(ph===0?' · <span style="color:#c39bff">'+T('UV allumé')+'</span>':'')+'</div>';
+      '<div>'+T(PH_NAME[ph]||'')+(ph===0?' · <span style="color:#c39bff">'+T('UV allumé')+'</span>':'')+'</div>'+
+      '<div style="color:#ffcf8a">'+rc+'</div>';
     const rows=[
       {n:'Force réelle',v:sim.F[M.curI],c:css('--s-true')||'#9aa4bb'},
       {n:'Cellule bras Z',v:interp(STATE.s.zc,M.tcur).v,c:css('--s-z')||'#ffd54a',k:'z'},
