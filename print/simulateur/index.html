@@ -1635,17 +1635,21 @@ function initM3D(){
   function updateFEP(ax,bz){
     if(!fep||!M.fepBase)return;
     const sim=STATE.sim,p=STATE.p,F=sim.F[M.curI],ph=M.curPh;
-    // Physique : le film est un ressort (f = fepK·z dans le modèle). Sa flèche élastique = F / fepK (mm),
-    // convertie à l'échelle verticale du plateau. Pendant l'arrachement, tant que la couche est collée,
-    // cette flèche vaut exactement le déplacement de la pièce/bras ; le film décolle quand la force chute.
+    // Le film reste collé à la pièce et la suit vers le haut à l'arrachement (donc lié au déplacement
+    // pièce/bras/plateau), jusqu'au décollement dont la hauteur dépend de la raideur du film (fepK) :
+    // film rigide -> décolle tôt, peu de flexion ; film détendu -> flexion plus grande. En compression /
+    // appui d'un obstacle, il s'enfonce selon la force et la raideur. (Flexion exagérée pour la lisibilité,
+    // comme l'est déjà la hauteur de couche.)
     const tilt=p.machine.release==='tilt';
-    const fepK=Math.max(2,(p.machine.fepK||25)*(tilt?0.3:1));   // raideur effective du film (N/mm) — propriété du film
-    const vScale=0.5/Math.max(M.liftH,1);                       // même échelle verticale que le mouvement du plateau
+    const fepK=Math.max(2,(p.machine.fepK||25)*(tilt?0.3:1));   // raideur effective du film (N/mm)
+    const vScale=0.5/Math.max(M.liftH,1);
     const pb=(sim.Z[M.curI]/Math.max(M.liftH,0.001))*0.5;       // déplacement réel pièce + bras + plateau
-    let target=(F/fepK)*vScale;                                 // flèche du film liée à la force et à la raideur
-    if(ph===1)target=Math.min(target,pb);                       // reste collé à la pièce (pas au-delà), puis décolle
-    target=Math.max(-0.1,Math.min(0.3,target));
-    M.fepAmp=(M.fepAmp||0)+(target-(M.fepAmp||0))*0.4;          // lissage léger
+    let target;
+    if(ph===1){
+      const pbSep=Math.max(0.1,Math.min(0.42,6/fepK));          // hauteur de décollement ~ 1 / raideur du film
+      target=pb<pbSep?pb:pbSep*Math.exp(-(pb-pbSep)*4);         // collé (= déplacement de la pièce), puis décolle (snap)
+    }else target=Math.max(-0.22,Math.min(0,(F/fepK)*vScale*4)); // compression / appui : s'enfonce selon force/raideur
+    M.fepAmp=(M.fepAmp||0)+(target-(M.fepAmp||0))*0.35;         // lissage
     const amp=M.fepAmp;
     const sigma=Math.max(0.18,0.9*(ax+bz)),s2=2*sigma*sigma;    // largeur ~ empreinte de la pièce
     const vw=M.vw||1,vh=M.vh||1,pos=fep.geometry.attributes.position,base=M.fepBase,n=pos.count;
