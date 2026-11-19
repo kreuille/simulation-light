@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Calcule, couche par couche, la surface exposée d'une impression résine à partir
-des images de couches (PNG), pour le simulateur (profil « Pièce imprimée » →
-« Importée depuis un fichier de couches »).
+Computes, layer by layer, the exposed area of a resin print from the layer images
+(PNG), for the simulator (profile "Printed part" -> "Imported from a layer file").
 
-D'où viennent les images :
-  - UVtools : ouvrir le fichier tranché (.ctb, .goo, .pwmx, .prz, …),
-    menu « File › Extract file contents » ou « Export layers to images » → dossier de PNG ;
-  - ou un fichier .zip / .sl1 qui contient déjà les PNG (Lychee, PrusaSlicer, Chitubox export zip).
+The command-line help and messages below are kept in French, for the operator.
 
-Installation :   pip install numpy pillow        (scipy facultatif : compte des îlots)
+Where the images come from:
+  - UVtools: open the sliced file (.ctb, .goo, .pwmx, .prz, ...),
+    menu "File > Extract file contents" or "Export layers to images" -> folder of PNG;
+  - or a .zip / .sl1 file that already contains the PNG (Lychee, PrusaSlicer, Chitubox export zip).
+
+Install:   pip install numpy pillow        (scipy optional: counts islands)
 Exemples :
   python layers_from_images.py couches/ --pixel-um 34.4 --sortie piece_couches.csv
   python layers_from_images.py export.zip --res 5760 3600 --ecran 198.15 123.84

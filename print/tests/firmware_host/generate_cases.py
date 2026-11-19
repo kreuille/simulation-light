@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Génère des enregistrements synthétiques du test de contrôle du bac (plateau qui descend à 1 mm/s
-jusqu'à 0,05 mm, maintien 5 s, couche noire, remontée), avec ou sans résidu."""
+"""Generates synthetic records of the vat control test (platform descending at 1 mm/s
+down to 0.05 mm, 5 s hold, black layer, lift), with or without debris."""
 import sys
 import numpy as np
 

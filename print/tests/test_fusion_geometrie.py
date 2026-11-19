@@ -1,4 +1,4 @@
-# Vérifie le modèle Fusion 360 sans Fusion : aucune pièce ne se chevauche, à plusieurs hauteurs du plateau,
+# Checks the Fusion 360 model without Fusion: no part overlaps, at several platform heights,
 # et le berceau reste au-dessus de 100 Hz.  python3 print/tests/test_fusion_geometrie.py
 import importlib.util, itertools, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
@@ -28,8 +28,8 @@ P = m.parts(0)
 mass = sum(m.volume_cm3(p) * m.RHO[p['mat']] for p in P if p['comp'] in ('Berceau', 'Bac'))
 m0, m1, f0, f1 = m.cradle_report(mass)
 top = max(m.bbox(p['shape'])[5] for p in P)
-print(f'{len(P)} pièces, {len({p["comp"] for p in P})} composants, hauteur {top:.0f} mm')
-print(f'berceau {m0:.2f} kg à vide, {m1:.2f} kg plein ; {f0:.0f} Hz / {f1:.0f} Hz')
+print(f'{len(P)} parts, {len({p["comp"] for p in P})} components, height {top:.0f} mm')
+print(f'cradle {m0:.2f} kg empty, {m1:.2f} kg full ; {f0:.0f} Hz / {f1:.0f} Hz')
 assert bad == 0, f'{bad} chevauchements'
-assert f1 > 100, 'fréquence propre trop basse'
-print('Géométrie du modèle Fusion 360 : aucun chevauchement.')
+assert f1 > 100, 'natural frequency too low'
+print('Fusion 360 model geometry: no overlap.')
