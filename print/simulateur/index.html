@@ -183,7 +183,7 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
     <div class="controls" id="resCtl" hidden>
       <div class="ctl"><label for="resT">Épaisseur du résidu <output id="resTo"></output></label><input id="resT" type="range" min="0.05" max="1" step="0.01" value="0.1"></div>
       <div class="ctl"><label for="resD">Diamètre du résidu <output id="resDo"></output></label><input id="resD" type="range" min="0.1" max="5" step="0.1" value="0.4"></div>
-      <div class="ctl"><label for="resOff">Position du résidu</label><select id="resOff"><option value="0">Sous la pièce</option><option value="1">À côté de la pièce, sous le plateau</option></select></div>
+      <div class="ctl"><label for="resOff">Position du résidu</label><select id="resOff"><option value="0">Sous la pièce</option><option value="1">À côté de la pièce, sous le plateau</option><option value="2">Placement aléatoire</option></select></div>
     </div>
     <p class="scen-desc" id="scendesc"></p>
   </section>
@@ -553,9 +553,10 @@ function simulate(P){
     truth.start.push(T.length);
     if(P.scen==='support'&&i===P.L) areaMul=0.5;
     if(P.scen==='fep'&&i>=P.L) fepK=k0*Math.max(0.25,1-(i-P.L+1)*0.13);
-    if(P.scen==='residue'&&i===P.L){residue=P.resT;kc=60*P.resD;resOff=!!P.resOff;resPos=resOff?{x:Math.min(M.vatW*0.9,PART.x+PART.rx*1.3),y:PART.y}:{x:PART.x+(r()-0.5)*PART.rx,y:PART.y+(r()-0.5)*PART.ry};truth.residuePos=resPos}
-    if(P.scen==='residue0'&&i===0){residue=Math.max(P.resT,0.3);kc=60*Math.max(P.resD,2);resOff=!!P.resOff; // résidu présent avant de lancer ; la position suit le choix (sous la pièce / à côté)
-      resPos=resOff?{x:Math.min(M.vatW*0.88,PART.x+PART.rx*1.1),y:PART.y}:{x:PART.x,y:PART.y};truth.residuePos=resPos}
+    if(P.scen==='residue'&&i===P.L){residue=P.resT;kc=60*P.resD;const m=+P.resOff;resOff=m!==0; // 0 sous pièce, 1 à côté, 2 aléatoire
+      resPos=m===2?{x:PART.rx+r()*(M.vatW-2*PART.rx),y:PART.ry+r()*(M.vatH-2*PART.ry)}:(m===1?{x:Math.min(M.vatW*0.9,PART.x+PART.rx*1.3),y:PART.y}:{x:PART.x+(r()-0.5)*PART.rx,y:PART.y+(r()-0.5)*PART.ry});truth.residuePos=resPos}
+    if(P.scen==='residue0'&&i===0){residue=Math.max(P.resT,0.3);kc=60*Math.max(P.resD,2);const m=+P.resOff;resOff=m!==0; // résidu avant de lancer ; position : sous la pièce / à côté / aléatoire
+      resPos=m===2?{x:PART.rx+r()*(M.vatW-2*PART.rx),y:PART.ry+r()*(M.vatH-2*PART.ry)}:(m===1?{x:Math.min(M.vatW*0.88,PART.x+PART.rx*1.1),y:PART.y}:{x:PART.x,y:PART.y});truth.residuePos=resPos}
     // 4 : attente UV éteint, puis 0 : exposition
     const tauD=0.25*vr400*R.squeezeTau*Math.sqrt(Math.max(prevA,0.5)/10)*(1+prevSuc/8);
     truth.settleDown.push(i===0?0:settleOf(cSqueeze,tauD));
@@ -1081,6 +1082,7 @@ Object.assign(I18N,{
 "Charge décentrée":["Off-centre load","载荷偏心"],
 "décalage {d} mm":["offset {d} mm","偏移 {d} mm"],
 "Charge centrée":["Load centred","载荷居中"],
+"Placement aléatoire":["Random placement","随机位置"],
 "Approche…":["Approaching…","接近中…"],
 "Approche":["Approach","接近"],
 "1re couche":["1st layer","第 1 层"],
