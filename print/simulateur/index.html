@@ -1536,11 +1536,11 @@ function initM3D(){
   const stage=$('m3dstage'),cv=$('m3dcanvas');
   if(!stage)return;
   const hasT=(typeof THREE!=='undefined')&&!!cv&&!!cv.getContext;
-  const SPEEDS=[['×1',1],['×10',10],['×100',100],['×Max','max']];
+  const SPEEDS=[['×0.1',0.1],['×0.25',0.25],['×1',1],['×10',10],['×100',100],['×Max','max']];
   const PH_NAME={4:'Attente en bas',0:'Exposition',1:'Arrachement',3:'Attente en haut',2:'Descente'};
   const FLAGLAB={crash:'blocage / écrasement',obstacle:'obstacle à la descente',appui:'appui résiduel (corps étranger)',faible:'arrachement trop faible',fep:'film détendu'};
   const FLAGCOL={crash:'#ff3b30',obstacle:'#ff9f0a',appui:'#ffd60a',faible:'#ff6482',fep:'#64d2ff'};
-  const M={tcur:0,totalT:0,playing:true,speed:10,nl:0,sig:'',SC:0.01,VLH:0.02,liftH:6,partCX:0,partCZ:0,fScale:20,faults:{},primary:null,parts:[],built:false,bound:false,speedBuilt:false,lastRAF:0,curI:0,curPh:4,curLy:0,cam:{az:0.8,el:0.42,rad:4.5},drag:null,lastW:0,lastH:0};
+  const M={tcur:0,totalT:0,playing:true,speed:10,nl:0,sig:'',SC:0.01,VLH:0.02,liftH:6,partCX:0,partCZ:0,fScale:20,faults:{},primary:null,parts:[],built:false,bound:false,speedBuilt:false,lastRAF:0,curI:0,curPh:4,curLy:0,cam:{az:0.8,el:0.34,rad:4.3},drag:null,lastW:0,lastH:0};
 
   // ---- recherches dans les séries ----
   function idx(t){const xs=STATE.sim.T;let lo=0,hi=xs.length-1;if(t<=xs[0])return 0;if(t>=xs[hi])return hi;while(hi-lo>1){const m=(lo+hi)>>1;if(xs[m]<=t)lo=m;else hi=m;}return lo;}
@@ -1550,7 +1550,7 @@ function initM3D(){
   function setTxt(id,t){const e=$(id);if(e)e.textContent=t;}
 
   // ---- scène Three.js ----
-  let renderer,scene,camera,screenMesh,lcdMesh,platform,arm,pillar,uvLight,partGroup,vatGrp,boxGeo,cylGeo;
+  let renderer,scene,camera,screenMesh,lcdMesh,platform,arm,pillar,uvLight,partGroup,vatGrp,boxGeo,cylGeo,fep;
   function buildScene(){
     renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});
     renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
@@ -1563,6 +1563,14 @@ function initM3D(){
     cylGeo=new THREE.CylinderGeometry(1,1,1,28); // section de couche (ellipse par mise à l'échelle x/z)
     const base=new THREE.Mesh(new THREE.BoxGeometry(3.7,0.5,3.1),new THREE.MeshStandardMaterial({color:0x161c2b,roughness:0.85,metalness:0.2}));base.position.y=-0.3;scene.add(base);
     screenMesh=new THREE.Mesh(new THREE.BoxGeometry(1,0.06,1),new THREE.MeshStandardMaterial({color:0x0a0a14,emissive:0x7a3cff,emissiveIntensity:0,roughness:0.25,metalness:0.1}));screenMesh.position.y=-0.015;scene.add(screenMesh);
+    // film FEP déformable : nappe translucide juste au-dessus de l'écran, bombée/enfoncée selon la force
+    const fepGeo=new THREE.PlaneGeometry(1,1,34,34);
+    fep=new THREE.Mesh(fepGeo,new THREE.MeshStandardMaterial({color:0x5cc6ff,emissive:0x1f6aa6,emissiveIntensity:0.9,transparent:true,opacity:0.42,roughness:0.1,metalness:0,side:THREE.DoubleSide}));
+    fep.rotation.x=-Math.PI/2;fep.position.y=0.002;scene.add(fep);
+    const fepWire=new THREE.Mesh(fepGeo,new THREE.MeshBasicMaterial({color:0xbdf6ff,wireframe:true,transparent:true,opacity:0.35})); // grille : rend la flexion du film bien lisible
+    fep.add(fepWire);
+    const bp=fepGeo.attributes.position;M.fepBase=new Float32Array(bp.count*2);
+    for(let i=0;i<bp.count;i++){M.fepBase[2*i]=bp.getX(i);M.fepBase[2*i+1]=bp.getY(i);}
     lcdMesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:0xc39bff,transparent:true,opacity:0}));lcdMesh.rotation.x=-Math.PI/2;lcdMesh.position.y=0.02;scene.add(lcdMesh);
     uvLight=new THREE.PointLight(0x9b5cff,0,7);uvLight.position.set(0,0.7,0);scene.add(uvLight);
     vatGrp=new THREE.Group();const wm=new THREE.MeshStandardMaterial({color:0x9fc0ff,transparent:true,opacity:0.1,roughness:0.1});
@@ -1570,7 +1578,7 @@ function initM3D(){
     scene.add(vatGrp);
     pillar=new THREE.Mesh(new THREE.BoxGeometry(0.16,3.0,0.16),new THREE.MeshStandardMaterial({color:0x2a3449,roughness:0.6}));pillar.position.set(-1.55,1.25,-1.2);scene.add(pillar);
     arm=new THREE.Mesh(boxGeo,new THREE.MeshStandardMaterial({color:0x3a465e,roughness:0.6}));scene.add(arm);
-    platform=new THREE.Mesh(boxGeo,new THREE.MeshStandardMaterial({color:0xc9d3e8,metalness:0.3,roughness:0.35,transparent:true,opacity:0.42}));scene.add(platform); // translucide : on voit la pièce se construire dessous
+    platform=new THREE.Mesh(boxGeo,new THREE.MeshStandardMaterial({color:0xc9d3e8,metalness:0.2,roughness:0.3,transparent:true,opacity:0.2,depthWrite:false}));scene.add(platform); // très transparent : on voit la pièce, le film et l'écran dessous
     partGroup=new THREE.Group();scene.add(partGroup);
     M.built=true;
   }
@@ -1597,6 +1605,7 @@ function initM3D(){
     w[3].scale.set(th,H,vh);w[3].position.set(-vw/2-th/2,ys,0);
     const pa=p.machine.plateArea||(p.machine.vatW*p.machine.vatH/100*0.6);
     const ps=Math.min(vw*0.98,Math.max(0.3,Math.sqrt(pa*100)*M.SC));platform.scale.set(ps,0.05,ps);
+    if(fep){fep.scale.set(vw,vh,1);M.vw=vw;M.vh=vh;}
   }
   function updateScene(){
     const sim=STATE.sim,z=sim.Z[M.curI],ph=M.curPh,ly=M.curLy;
@@ -1616,6 +1625,28 @@ function initM3D(){
     const pp=M.parts[ly],ax=pp?pp.ax:0.3,bz=pp?pp.bz:0.3;
     lcdMesh.scale.set(ax*2,bz*2,1);lcdMesh.position.set(M.partCX,0.02,M.partCZ);
     lcdMesh.material.opacity+=((on?0.92:0)-lcdMesh.material.opacity)*0.25;
+    updateFEP(ax,bz);
+  }
+  // Déformation du film FEP : nappe pilotée par la force réelle (traction = bombe vers le haut,
+  // compression/appui = s'enfonce), centrée sur la pièce. Montre en direct la flexion du film et son lien avec les courbes.
+  function updateFEP(ax,bz){
+    if(!fep||!M.fepBase)return;
+    const F=STATE.sim.F[M.curI],ph=M.curPh,z=STATE.sim.Z[M.curI];
+    const ref=Math.max(4,0.5*M.fScale);                         // référence = ~moitié de la force max de ce tirage
+    let target;
+    if(ph===1){                                                 // arrachement : le film suit la pièce vers le haut puis décolle (snap)
+      const prog=z/Math.max(M.liftH*0.25,1e-3);
+      target=prog<1?0.5*prog:0.5*Math.exp(-(prog-1)*3.2);
+    }else target=Math.max(-1,Math.min(0,F/ref))*0.5;            // compression / appui (obstacle) -> le film s'enfonce
+    M.fepAmp=(M.fepAmp||0)+(target-(M.fepAmp||0))*0.3;          // lissage : flexion lisible
+    const amp=M.fepAmp;
+    const sigma=Math.max(0.2,0.95*(ax+bz)),s2=2*sigma*sigma;    // largeur ~ empreinte de la pièce
+    const vw=M.vw||1,vh=M.vh||1,pos=fep.geometry.attributes.position,base=M.fepBase,n=pos.count;
+    for(let i=0;i<n;i++){
+      const wx=base[2*i]*vw-M.partCX,wz=-base[2*i+1]*vh-M.partCZ;
+      pos.setZ(i,amp*Math.exp(-(wx*wx+wz*wz)/s2));
+    }
+    pos.needsUpdate=true;fep.geometry.computeVertexNormals();
   }
 
   // ---- HUD, écran LCD 2D, contrôles ----
