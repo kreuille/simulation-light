@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Parité simulateur (JS) ↔ bibliothèque msla_detect (C++).
-# Exporte des scénarios depuis le simulateur, puis vérifie que la bibliothèque C++
-# retrouve les mêmes verdicts d'apprentissage par couche et les mêmes temps de
-# stabilisation. Nécessite node et g++.
+# Parity: simulator (JS) <-> msla_detect library (C++).
+# Exports scenarios from the simulator, then checks that the C++ library gives the same
+# per-layer learning verdicts and the same settle times. Needs node and g++.
 set -euo pipefail
 cd "$(dirname "$0")"
 racine=../../..

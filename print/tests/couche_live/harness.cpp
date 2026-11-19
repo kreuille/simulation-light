@@ -1,8 +1,8 @@
-// Test hôte de la détection par couche EN DIRECT du firmware (voir PROTOCOLE.md).
-// Rejoue les scénarios exportés par tests/lib/export_scenarios.js à travers le chemin
-// réel du firmware : commandes « L »/« U » sur Serial2 + échantillons via detEchantillon,
-// l'étiquetage des phases étant refait par le firmware à partir du mouvement Z et de l'UV.
-// Vérifie la couche du premier défaut (STOP/PAUSE) et l'absence de fausse alerte.
+// Host test of the firmware LIVE per-layer detection (see PROTOCOLE.md).
+// Replays the scenarios exported by tests/lib/export_scenarios.js through the real
+// firmware path: "L"/"U" commands on Serial2 + samples via detEchantillon, with the
+// phase labeling redone by the firmware from the Z movement and the UV.
+// Checks the layer of the first fault (STOP/PAUSE) and the absence of a false alarm.
 #include "Arduino.h"
 SerialT Serial;
 SerialT Serial2;
@@ -45,13 +45,13 @@ int main(int argc, char** argv) {
       } else if (tok == "END_CHANNEL" && dansZ) dansZ = false;
     }
 
-    // Réinitialise l'état du firmware et cale la calibration de détection sur le scénario.
+    // Reset the firmware state and set the detection calibration from the scenario.
     detArreter(); protoLayer = -1; protoUV = false; protoArea = 0; detActive = false;
     Serial2.drain();
     detNoise = nme; detObstacleMul = 2.5; detLowRatio = 0.6; cfg.zMaxN = fstall;
 
-    // Rejeu : la carte mère annonce couche (« L n aire ») et UV (« U »), l'échantillon
-    // est fourni au banc qui en déduit lui-même les phases à partir du mouvement Z.
+    // Replay: the motherboard announces the layer ("L n area") and the UV ("U"), the
+    // sample is given to the bench which derives the phases itself from the Z movement.
     int curLy = -1; bool curUV = false;
     for (const Ech& e : ech) {
       if (e.ly != curLy) { char b[64]; snprintf(b, sizeof b, "L %d %.6f\n", e.ly, area[e.ly]); Serial2.feed(b); protocolePoll(); curLy = e.ly; }
@@ -59,9 +59,9 @@ int main(int argc, char** argv) {
       if (uv != curUV) { Serial2.feed(uv ? "U 1\n" : "U 0\n"); protocolePoll(); curUV = uv; }
       detEchantillon((float)e.t, (float)e.z, (float)e.f);
     }
-    Serial2.feed("X\n"); protocolePoll();   // vide les dernières couches
+    Serial2.feed("X\n"); protocolePoll();   // flush the last layers
 
-    // Analyse des verdicts émis : première couche en défaut, et drapeaux avant.
+    // Analyze the emitted verdicts: first faulty layer, and flags before it.
     std::string out = Serial2.drain(), ligne;
     std::stringstream ss(out);
     int premier = -1, nbDefauts = 0;
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
         if (premier < 0 || ly < premier) premier = ly;
       }
     }
-    printf("DET %s premier=%d defauts=%d\n", nom.c_str(), premier, nbDefauts);
+    printf("DET %s first=%d faults=%d\n", nom.c_str(), premier, nbDefauts);
   }
   return 0;
 }

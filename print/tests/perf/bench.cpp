@@ -1,12 +1,12 @@
-// Benchmark du coût de calcul de la détection par couche du firmware.
-// Rejoue une impression réelle (scénario exporté, 60 couches dont 4 couches de base
-// à exposition longue) à travers la vraie fonction detEchantillon() du firmware, et
-// mesure le temps par échantillon (moyen et pire cas) sur ce PC.
+// Benchmark of the compute cost of the firmware per-layer detection.
+// Replays a real print (exported scenario, 60 layers of which 4 base layers with a long
+// exposure) through the real detEchantillon() function of the firmware, and measures the
+// time per sample (mean and worst case) on this PC.
 //
-// Le pire cas est l'échantillon qui finalise une couche (tris de médianes) : c'est lui
-// qui doit tenir dans la période d'échantillonnage (12,5 ms à 80 SPS) sur l'ESP32.
+// The worst case is the sample that finalizes a layer (median sorts): it is the one that
+// must fit within the sample period (12.5 ms at 80 SPS) on the ESP32.
 //
-// Usage : bench <dossier> <scenario>
+// Usage: bench <dir> <scenario>
 #include "Arduino.h"
 SerialT Serial;
 SerialT Serial2;
@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
   const std::string nom = argc > 2 ? argv[2] : "residue_m9";
 
   std::ifstream in(dir + "/" + nom + ".txt");
-  if (!in) { fprintf(stderr, "scenario introuvable : %s\n", nom.c_str()); return 2; }
+  if (!in) { fprintf(stderr, "scenario not found: %s\n", nom.c_str()); return 2; }
   int n = 0; double nme = 1, fstall = 140; std::vector<double> area; std::vector<Ech> ech;
   std::string tok; bool dansZ = false;
   while (in >> tok) {
@@ -65,17 +65,17 @@ int main(int argc, char** argv) {
   const double periode_ms = 12.5;        // 80 SPS
   const double marge = periode_ms * 1000.0 / max_us;
 
-  printf("=== Benchmark du calcul de la détection (sur ce PC) ===\n");
-  printf("Scénario %s : %zu échantillons, %d couches (dont 4 couches de base à exposition longue)\n", nom.c_str(), ech.size(), n);
-  printf("Temps par échantillon dans detEchantillon() :\n");
-  printf("  moyen    = %7.3f µs\n", moy_us);
-  printf("  pire cas = %7.3f µs  (échantillon finalisant une couche, vers la couche %ld)\n", max_us, nmax_ly);
-  printf("Budget à 80 SPS = %.1f ms/échantillon.\n", periode_ms);
-  printf("Marge sur le pire cas (PC) = %.0f×  (le pire échantillon tient %.0f fois dans la période).\n", marge, marge);
-  printf("\nExtrapolation ESP32 (240 MHz, double émulé en logiciel, sans FPU double) :\n");
-  printf("  en supposant l'ESP32 jusqu'à 50× plus lent par opération que ce PC,\n");
-  printf("  pire cas ESP32 ≈ %.2f ms << %.1f ms : le temps réel est tenu avec une marge d'au moins %.0f×.\n",
+  printf("=== Detection compute benchmark (on this PC) ===\n");
+  printf("Scenario %s: %zu samples, %d layers (of which 4 base layers with a long exposure)\n", nom.c_str(), ech.size(), n);
+  printf("Time per sample in detEchantillon():\n");
+  printf("  mean       = %7.3f us\n", moy_us);
+  printf("  worst case = %7.3f us  (sample finalizing a layer, around layer %ld)\n", max_us, nmax_ly);
+  printf("Budget at 80 SPS = %.1f ms/sample.\n", periode_ms);
+  printf("Margin on the worst case (PC) = %.0fx  (the worst sample fits %.0f times in the period).\n", marge, marge);
+  printf("\nESP32 extrapolation (240 MHz, double emulated in software, no double FPU):\n");
+  printf("  assuming the ESP32 is up to 50x slower per operation than this PC,\n");
+  printf("  ESP32 worst case ~ %.2f ms << %.1f ms: real time is met with a margin of at least %.0fx.\n",
          max_us * 50.0 / 1000.0, periode_ms, marge / 50.0);
-  printf("  (la détection ne tourne qu'en fin de couche ; entre deux couches, le CPU est libre >90 %% du temps.)\n");
+  printf("  (the detection runs only at the end of a layer; between layers, the CPU is free >90 %% of the time.)\n");
   return 0;
 }

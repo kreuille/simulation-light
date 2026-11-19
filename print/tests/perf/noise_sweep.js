@@ -1,20 +1,19 @@
 #!/usr/bin/env node
 /*
-  Robustesse de la détection au bruit du signal.
+  Detection robustness to signal noise.
 
-  Fait varier le niveau de bruit du capteur et, pour chaque niveau, mesure sur
-  plusieurs tirages (seeds) :
-    - sur une impression NORMALE : le nombre de fausses alertes ;
-    - sur les pannes (décollement, supports, résidu, film) : le taux de détection
-      et la latence (couches après l'incident, couche 30).
+  Varies the sensor noise level and, for each level, measures over several draws (seeds):
+    - on a NORMAL print: the number of false alarms;
+    - on the faults (detachment, supports, debris, film): the detection rate and the
+      latency (layers after the incident, layer 30).
 
-  Le bruit est injecté par le modèle du simulateur (bruit HX711, 50 Hz secteur,
-  vibrations moteur, dérive thermique, pics). Le seuil de détection s'adapte au
-  bruit mesuré (nm ∝ bruit), comme après un étalonnage sur le banc réel. La
-  détection de la bibliothèque C++ étant identique au simulateur (parité), ces
-  chiffres valent pour le firmware.
+  The noise is injected by the simulator model (HX711 noise, 50 Hz mains, motor
+  vibration, thermal drift, spikes). The detection threshold adapts to the measured
+  noise (nm proportional to noise), like after a calibration on the real bench. Since the
+  C++ library detection is identical to the simulator (parity), these numbers apply to
+  the firmware.
 
-  Usage : node noise_sweep.js
+  Usage: node noise_sweep.js
 */
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const html = fs.readFileSync(path.join(__dirname, '..', '..', 'simulateur', 'index.html'), 'utf8');
@@ -48,20 +47,20 @@ function mesure(noise) {
   return { faTot, faSeeds, pann };
 }
 
-console.log('=== Robustesse de la détection au bruit (machine 9″, capteur 0,03 N, 80 SPS) ===');
-console.log(`Tirages par niveau : ${SEEDS}. Panne injectée à la couche 30.`);
+console.log('=== Detection robustness to noise (9" machine, 0.03 N sensor, 80 SPS) ===');
+console.log(`Draws per level: ${SEEDS}. Fault injected at layer 30.`);
 console.log('');
-console.log('bruit | normal: fausses alertes      | décollement | supports | résidu | film détendu');
-console.log('      | total / tirages touchés      | détect. (lat) …');
+console.log('noise | normal: false alarms         | detachment  | supports | debris | loose film');
+console.log('      | total / affected draws       | detect. (lat) ...');
 console.log('-'.repeat(92));
-const fmt = (p) => p.det === 0 ? '  raté  ' : `${Math.round(100 * p.det / SEEDS)}% (${(p.latSum / p.det).toFixed(1)})`;
+const fmt = (p) => p.det === 0 ? '  miss  ' : `${Math.round(100 * p.det / SEEDS)}% (${(p.latSum / p.det).toFixed(1)})`;
 for (const noise of NIVEAUX) {
   const r = mesure(noise);
   console.log(
-    `${noise.toString().padStart(5)} | ${r.faTot.toString().padStart(3)} sur ${SEEDS} tirages, ${r.faSeeds} touché(s)`.padEnd(46) +
+    `${noise.toString().padStart(5)} | ${r.faTot.toString().padStart(3)} over ${SEEDS} draws, ${r.faSeeds} affected`.padEnd(46) +
     `| ${fmt(r.pann.detach).padEnd(11)} | ${fmt(r.pann.support).padEnd(8)} | ${fmt(r.pann.residue).padEnd(6)} | ${fmt(r.pann.fep)}`
   );
 }
 console.log('-'.repeat(92));
-console.log('Lecture : « 100% (0.4) » = panne détectée dans tous les tirages, 0,4 couche après l\'incident en moyenne.');
-console.log('Le bruit est un multiplicateur : 1 = niveau nominal du capteur, 5 = capteur 5× plus bruyant.');
+console.log('Read: "100% (0.4)" = fault detected in every draw, 0.4 layer after the incident on average.');
+console.log('Noise is a multiplier: 1 = nominal sensor level, 5 = sensor 5x noisier.');

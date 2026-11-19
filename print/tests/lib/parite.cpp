@@ -1,13 +1,13 @@
 /*
-  Runner de parité : rejoue les scénarios exportés par export_scenarios.js dans
-  la bibliothèque msla_detect (C++) et vérifie que les verdicts d'apprentissage
-  par couche et les temps de stabilisation sont IDENTIQUES à ceux du simulateur.
+  Parity runner: replays the scenarios exported by export_scenarios.js in the
+  msla_detect library (C++) and checks that the per-layer learning verdicts and the
+  settle times are IDENTICAL to those of the simulator.
 
   Usage : parite <dossier> [scenario ...]
-  Lit <dossier>/scenarios.txt si aucun scénario n'est passé en argument.
+  Reads <dir>/scenarios.txt if no scenario is passed as an argument.
 
-  Le programme de test peut allouer (std::vector) ; la bibliothèque, elle, reste
-  sans allocation dynamique. Sortie non nulle en cas d'écart.
+  The test program may allocate (std::vector); the library stays free of dynamic
+  memory. Non-zero exit on a mismatch.
 */
 #include "msla_detect.h"
 #include <cmath>
@@ -57,7 +57,7 @@ static void verifChannel2(const std::string& scenNom, const std::string& scen, i
   detect(feat.data(), area.data(), n, key.c_str(), nmDet, obstacleMul, lowRatio, fstall, flags.data());
   Verdict v = verdict(flags.data(), n, scen.c_str(), L);
 
-  // Parité des versions en flux (chaîne live du firmware).
+  // Parity of the streaming versions (live firmware chain).
   auto egal = [](double a, double b) { return (std::isnan(a) && std::isnan(b)) || a == b; };
   // 1) SuiviCouches doit reproduire features().
   SuiviCouches suivi; suivi.init();
@@ -70,7 +70,7 @@ static void verifChannel2(const std::string& scenNom, const std::string& scen, i
   for (int i = 0; i < n; i++)
     if (!egal(sfeat[i].peak, feat[i].peak) || !egal(sfeat[i].comp, feat[i].comp) ||
         !egal(sfeat[i].travel, feat[i].travel) || !egal(sfeat[i].stat, feat[i].stat)) fEch++;
-  if (fEch) { echecs++; std::printf("  ECHEC features flux %s/%s : %d couches divergentes\n", scenNom.c_str(), key.c_str(), fEch); }
+  if (fEch) { echecs++; std::printf("  FAIL streaming features %s/%s: %d divergent layers\n", scenNom.c_str(), key.c_str(), fEch); }
   // 2) DetecteurCouche doit reproduire les drapeaux de detect().
   DetecteurCouche det; det.init(key.c_str(), nmDet, obstacleMul, lowRatio, fstall);
   int dEch = 0;
@@ -80,7 +80,7 @@ static void verifChannel2(const std::string& scenNom, const std::string& scen, i
     for (int j = 0; ok2 && j < lf.n; j++) ok2 = lf.f[j] == flags[i].f[j];
     if (!ok2) dEch++;
   }
-  if (dEch) { echecs++; std::printf("  ECHEC detecteur flux %s/%s : %d couches divergentes\n", scenNom.c_str(), key.c_str(), dEch); }
+  if (dEch) { echecs++; std::printf("  FAIL streaming detector %s/%s: %d divergent layers\n", scenNom.c_str(), key.c_str(), dEch); }
 
   const int cfirst = v.hasFirst ? v.first : -1;
   const std::string ckind = nomFlag(v.hasFirst ? v.kind : F_NODATA);
@@ -88,12 +88,12 @@ static void verifChannel2(const std::string& scenNom, const std::string& scen, i
   bool ok = (cfirst == efirst) && (ckind == ekind) && (v.fa == efa) && (v.nodata == enodata) && (clat == elat);
   if (!ok) {
     echecs++;
-    std::printf("  ECHEC verdict %s/%s : C++ {first=%d kind=%s fa=%d nodata=%d lat=%d} != JS {first=%d kind=%s fa=%d nodata=%d lat=%d}\n",
+    std::printf("  FAIL verdict %s/%s: C++ {first=%d kind=%s fa=%d nodata=%d lat=%d} != JS {first=%d kind=%s fa=%d nodata=%d lat=%d}\n",
                 scenNom.c_str(), key.c_str(), cfirst, ckind.c_str(), v.fa, v.nodata, clat,
                 efirst, ekind.c_str(), efa, enodata, elat);
   }
 
-  // Stabilité (sauf sg).
+  // Stability (except sg).
   if (key != "sg") {
     StabOpt opt{rate, nmE};
     Starts starts{restStart.data(), topStart.data()};
@@ -106,7 +106,7 @@ static void verifChannel2(const std::string& scenNom, const std::string& scen, i
       const bool ef2 = stFound[i] != 0, cf2 = top[i].found;
       if (ef2 != cf2 || (ef2 && std::fabs(stTs[i] - top[i].ts) > 1e-6)) stabEch++;
     }
-    if (stabEch) { echecs++; std::printf("  ECHEC stabilite %s/%s : %d couches divergentes\n", scenNom.c_str(), key.c_str(), stabEch); }
+    if (stabEch) { echecs++; std::printf("  FAIL stability %s/%s: %d divergent layers\n", scenNom.c_str(), key.c_str(), stabEch); }
   }
 }
 
@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (echecs) { std::printf("PARITE : %d ecart(s) sur %d canaux.\n", echecs, canaux); return 1; }
-  std::printf("PARITE : %d canaux conformes, verdicts et stabilite identiques au simulateur.\n", canaux);
+  if (echecs) { std::printf("PARITY: %d mismatch(es) over %d channels.\n", echecs, canaux); return 1; }
+  std::printf("PARITY: %d channels conform, verdicts and stability identical to the simulator.\n", canaux);
   return 0;
 }

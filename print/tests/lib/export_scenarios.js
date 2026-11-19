@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /*
-  Exporte, pour un jeu de scénarios du simulateur, les traces échantillonnées
+  Exports, for a set of simulator scenarios, the sampled traces
   (t, f brut, z, ph, ly) et le verdict attendu de l'apprentissage par couche,
-  ainsi que les entrées/sorties de la stabilité. Ces fichiers sont rejoués par
-  le runner C++ (parite.cpp) qui doit retrouver exactement les mêmes verdicts.
+  and the inputs/outputs of the stability. These files are replayed by the C++
+  runner (parite.cpp) which must find exactly the same verdicts.
 
   Usage : node export_scenarios.js <dossier_de_sortie>
 
-  Les nombres réels sont écrits avec toString() (plus court aller-retour exact),
-  pour que strtod() en C++ retrouve le même double, et donc les mêmes seuils.
+  Real numbers are written with toString() (shortest exact round trip), so that
+  strtod() in C++ recovers the same double, and therefore the same thresholds.
 */
 const fs = require('fs'), path = require('path'), vm = require('vm');
 
@@ -25,10 +25,10 @@ const P = (o = {}) => Object.assign({
   noise: 1, rate: 80, median: true, shockRate: 1, nz, seed: 1
 }, o);
 
-// resFactor et nm de détection, reproduits à l'identique de runAll().
+// resFactor and detection nm, reproduced identically to runAll().
 const resFactor = p => Math.max(1, (p.machine && p.machine.sensRes || 0.03) / 0.05);
 
-// Scénarios exportés (couvrent tout ce qu'assure simulateur.test.js, et plus).
+// Exported scenarios (cover everything simulateur.test.js checks, and more).
 const SCEN = [
   { nom: 'normal_m9', p: P({ scen: 'normal' }) },
   { nom: 'detach_m9', p: P({ scen: 'detach' }) },
@@ -46,7 +46,7 @@ const out = process.argv[2] || '.';
 const num = x => (x == null || !isFinite(x)) ? 'nan' : x.toString();
 const arr = a => a.map(num).join(' ');
 
-// key = clé de détection/verdict ; serie = clé de la série dans r.s ; stab = clé dans r.stab (null si aucune)
+// key = detection/verdict key; serie = series key in r.s; stab = key in r.stab (null if none)
 const CHAN = [
   { key: 'z', serie: 'zc', stab: 'z', avg: false },
   { key: 'vat', serie: 'vat', stab: 'vat', avg: true },
@@ -83,7 +83,7 @@ for (const { nom, p } of SCEN) {
     const v = r.ver[key];
     L.push(`BEGIN_CHANNEL ${key} MED ${p.median ? 1 : 0} AVG ${avg ? 1 : 0} NMDET ${num(nmDet)}`);
     L.push(`VERDICT first ${v.first == null ? -1 : v.first} kind ${v.kind == null ? 'none' : v.kind} fa ${v.fa} nodata ${v.nodata} lat ${v.lat == null ? -1 : v.lat}`);
-    // stabilité (sg n'en a pas)
+    // stability (sg has none)
     const st = stab ? r.stab[stab] : null;
     const sd = [], stp = [];
     for (let i = 0; i < n; i++) {
@@ -101,6 +101,6 @@ for (const { nom, p } of SCEN) {
   }
   fs.writeFileSync(path.join(out, `${nom}.txt`), L.join('\n') + '\n');
 }
-// Liste des scénarios pour le runner.
+// List of scenarios for the runner.
 fs.writeFileSync(path.join(out, 'scenarios.txt'), SCEN.map(s => s.nom).join('\n') + '\n');
-console.log(`${SCEN.length} scénarios exportés dans ${out}`);
+console.log(`${SCEN.length} scenarios exported to ${out}`);

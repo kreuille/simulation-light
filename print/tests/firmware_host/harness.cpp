@@ -1,8 +1,8 @@
-// Fait tourner l'analyse du contrôle du bac du firmware sur PC, à partir de fichiers CSV.
-// Compilé et lancé par run.sh.
+// Runs the firmware vat-control analysis on a PC, from CSV files.
+// Compiled and run by run.sh.
 #include "Arduino.h"
 SerialT Serial;
-SerialT Serial2;   // liaison carte mère (non utilisée par ce test ; n'écrit pas sur stdout)
+SerialT Serial2;   // motherboard link (not used by this test; does not write to stdout)
 #define setup sketch_setup
 #define loop sketch_loop
 #include "../../firmware/banc_msla/banc_msla.ino"
@@ -11,7 +11,7 @@ SerialT Serial2;   // liaison carte mère (non utilisée par ce test ; n'écrit 
 #include <fstream>
 #include <sstream>
 int main(int argc, char** argv) {
-  Serial2.toStdout = false;   // ce test lit la sortie USB ; la liaison carte mère ne doit pas la polluer
+  Serial2.toStdout = false;   // this test reads the USB output; the motherboard link must not pollute it
   cfg.nCells = 5; cfg.vatW = 200; cfg.vatH = 125;
   for (int a = 1; a < argc; a++) {
     std::string fn = argv[a];
