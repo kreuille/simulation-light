@@ -60,6 +60,7 @@ Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à
 | `BOM.md` | Nomenclature du matériel (composants, câblage, budget) |
 | `docs/DETECTION_SPEC.md` | Spécification complète de la détection (anglais ASD-STE100 + 中文), schémas de câblage inclus |
 | `docs/SOFTWARE_DEV_GUIDE.md` | Guide développeur logiciel (anglais + 中文) : API, flux de données, seuils, points d'extension |
+| `docs/SOFTWARE.md` | Documentation logicielle complète (anglais) : architecture, modules, algorithmes, firmware, protocole, API, perf, tests |
 | `outils/logger.py` | Enregistre les mesures de l'ESP32 dans un fichier CSV avec les métadonnées de l'essai |
 | `outils/layers_from_images.py` | Calcule la surface exposée de chaque couche à partir des images de couches du fichier tranché |
 | `exemples/enregistrement_exemple.csv` | Enregistrement synthétique (60 couches) pour tester la chaîne sans matériel |
