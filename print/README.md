@@ -1,4 +1,53 @@
-# Banc de mesure MSLA
+# Banc de mesure MSLA / MSLA Force Bench / MSLA 测力台
+
+Langues / Languages / 语言 : [Français](#français) · [English](#english-overview) · [中文](#中文-概览)
+
+Documentation détaillée trilingue (FR/EN/中文) : `BOM.md`, `firmware/PROTOCOLE.md`,
+`docs/DETECTION_SPEC.md`, `docs/SOFTWARE_DEV_GUIDE.md`.
+
+## English (overview)
+
+This kit changes an LCD resin printer into a measurement bench. It also checks the resin
+vat before each print. It records the force on the build platform (and, as an option, below
+the 4 corners of the vat), the Z position, and the UV state, layer by layer. The records
+load into the **MSLA resin sensor simulator** (`simulateur/index.html`), which cuts the
+layers, measures the peel peaks and the compression, and fits the model to your machine and
+resin.
+
+The system also finds faults during a print (detachment, support failure, debris, loose
+film) and sends verdicts to the printer motherboard on a serial link.
+
+Start here:
+- Parts and wiring: `BOM.md` and `docs/DETECTION_SPEC.md` (with diagrams).
+- Full build and detection specification (ASD-STE100): `docs/DETECTION_SPEC.md`.
+- Software architecture and API: `docs/SOFTWARE_DEV_GUIDE.md`.
+- Serial protocol to the motherboard: `firmware/PROTOCOLE.md`.
+- Build and upload the firmware with Arduino IDE 2 (board "ESP32 Dev Module").
+- Run the tests on a PC: `node tests/simulateur.test.js`, `bash tests/lib/run.sh`,
+  `bash tests/firmware_host/run.sh`, `bash tests/protocole/run.sh`,
+  `bash tests/couche_live/run.sh`, `python3 tests/test_fusion_geometrie.py`.
+
+## 中文 (概览)
+
+本套件把一台 LCD 树脂打印机改造成测力台，并在每次打印前检查料槽。它逐层记录构建平台受力
+（可选：料槽四角下方）、Z 轴位置与紫外状态。记录导入 **MSLA 树脂传感器模拟器**
+（`simulateur/index.html`）进行分层、测量剥离峰值与压缩，并把模型标定到你的机器和树脂。
+
+系统还能在打印过程中发现故障（脱落、支撑断裂、碎屑、离型膜松弛），并通过串口向打印机主板发送判定。
+
+从这里开始：
+- 物料与接线：`BOM.md` 与 `docs/DETECTION_SPEC.md`（含接线图）。
+- 完整搭建与检测规范（ASD-STE100）：`docs/DETECTION_SPEC.md`。
+- 软件架构与 API：`docs/SOFTWARE_DEV_GUIDE.md`。
+- 与主板的串口协议：`firmware/PROTOCOLE.md`。
+- 用 Arduino IDE 2 编译并烧录固件（开发板“ESP32 Dev Module”）。
+- 在 PC 上运行测试：`node tests/simulateur.test.js`、`bash tests/lib/run.sh`、
+  `bash tests/firmware_host/run.sh`、`bash tests/protocole/run.sh`、
+  `bash tests/couche_live/run.sh`、`python3 tests/test_fusion_geometrie.py`。
+
+---
+
+## Français
 
 Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à contrôler le bac avant chaque impression (§7). Il enregistre la force sur le plateau (et, en option, sous les 4 coins du bac), la position de l'axe Z et l'état de l'UV, couche par couche. Les fichiers obtenus se chargent dans le **Simulateur capteurs résine MSLA** (`simulateur/index.html`) (section 5, « Données réelles et recalage »), qui découpe les couches, mesure les pics d'arrachement, la compression et le temps d'immobilisation de la résine, puis recale le modèle sur ta machine et ta résine.
 
@@ -9,8 +58,8 @@ Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à
 | `firmware/banc_msla/banc_msla.ino` | Programme de l'ESP32 : lecture des HX711, comptage des pas Z, capteur UV, envoi CSV, contrôle du bac, protocole carte mère |
 | `firmware/PROTOCOLE.md` | Protocole série (Serial2) entre le banc de mesure et la carte mère de l'imprimante |
 | `BOM.md` | Nomenclature du matériel (composants, câblage, budget) |
-| `docs/DETECTION_SPEC_EN.md` | Spécification complète de la détection en anglais (ASD-STE100), schémas de câblage inclus |
-| `docs/SOFTWARE_DEV_GUIDE.md` | Guide développeur logiciel (anglais) : API, flux de données, seuils, points d'extension |
+| `docs/DETECTION_SPEC.md` | Spécification complète de la détection (anglais ASD-STE100 + 中文), schémas de câblage inclus |
+| `docs/SOFTWARE_DEV_GUIDE.md` | Guide développeur logiciel (anglais + 中文) : API, flux de données, seuils, points d'extension |
 | `outils/logger.py` | Enregistre les mesures de l'ESP32 dans un fichier CSV avec les métadonnées de l'essai |
 | `outils/layers_from_images.py` | Calcule la surface exposée de chaque couche à partir des images de couches du fichier tranché |
 | `exemples/enregistrement_exemple.csv` | Enregistrement synthétique (60 couches) pour tester la chaîne sans matériel |

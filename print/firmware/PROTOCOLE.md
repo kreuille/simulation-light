@@ -1,135 +1,168 @@
-# Protocole série : coprocesseur de mesure ↔ carte mère
+# Protocole série / Serial protocol / 串口协议 — banc ↔ carte mère
 
-Ce document décrit la liaison entre le **banc de mesure** (coprocesseur ESP32,
-`banc_msla.ino`) et la **carte mère** de l'imprimante. Le but : la carte mère
-pilote l'impression et informe le banc des événements qu'elle connaît (début de
-couche, UV) ; le banc mesure, contrôle le bac avant impression, et renvoie des
-verdicts (bac OK, attendre, pause, arrêt).
+Langues : [Français](#français) · [English](#english) · [中文](#中文)
 
-La liaison de mesure brute (CSV à 921600 bauds sur l'USB) est **indépendante** de
-ce protocole : elle reste disponible pour l'enregistrement et le recalage.
+Liaison entre le **banc de mesure** (ESP32) et la **carte mère** de l'imprimante, sur
+`Serial2`. La liaison USB brute (CSV à 921600 bauds) reste indépendante.
 
-## 1. Couche physique
+Link between the **measurement bench** (ESP32) and the printer **motherboard**, on
+`Serial2`. The raw USB link (CSV at 921600 baud) stays independent.
 
+测量台（ESP32）与打印机**主板**之间的 `Serial2` 链路。原始 USB 链路（921600 波特 CSV）相互独立。
+
+---
+
+## Français
+
+### 1. Couche physique
 | Paramètre | Valeur |
 |---|---|
 | Port ESP32 | `Serial2` (UART2) |
 | Vitesse | 115200 bauds, 8N1 |
-| Broches | RX2 = GPIO16, TX2 = GPIO17 (niveau 3,3 V ; prévoir un adaptateur si la carte mère est en 5 V) |
-| Trames | lignes ASCII terminées par `\n` (LF) ; `\r` ignoré ; 32 caractères maximum |
-| Casse | commandes insensibles à la casse |
-| Maître | la carte mère. Le banc ne parle que pour répondre ou signaler un événement. |
+| Broches | RX2 = GPIO16, TX2 = GPIO17 (3,3 V) |
+| Trames | lignes ASCII terminées par `\n` (LF), 32 caractères max |
+| Maître | la carte mère |
 
-Chaque trame = un mot-clé, éventuellement suivi d'arguments séparés par une espace.
+### 2. Carte mère → banc
+| Trame | Effet |
+|---|---|
+| `L <n> [aire]` | début de la couche n ; `aire` = surface exposée en mm² (recommandée) |
+| `U 1` / `U 0` | UV allumé / éteint |
+| `V` | contrôler le bac ; répond `VAT …` |
+| `P` / `R` | pause / reprise |
+| `X` | arrêt ; finalise la dernière couche |
+| `?` | état ; répond `RDY` |
 
-## 2. Carte mère → banc (commandes)
+### 3. Banc → carte mère
+| Trame | Signification |
+|---|---|
+| `RDY` | banc prêt |
+| `VAT OK` / `VAT RESIDU` / `VAT ERREUR` | résultat du contrôle du bac |
+| `OK <n>` | couche n saine |
+| `PAUSE <code> <n>` | anomalie récupérable à la couche n |
+| `STOP <code> <n>` | danger à la couche n |
+| `ALRM FORCE` | effort au-delà du seuil |
+| `ERR` | trame non reconnue |
 
-| Trame | Signification | Effet sur le banc |
-|---|---|---|
-| `L <n> [aire]` | début de la couche n (n ≥ 0) ; `aire` = surface exposée en mm² (optionnelle mais recommandée) | couche courante = n ; démarre la détection au premier `L` |
-| `U 1` / `U 0` | UV allumé / éteint | état d'exposition mémorisé (sert à déduire les phases) |
-| `V` | contrôler le bac avant impression | arme le contrôle du bac ; répond `VAT …` à la fin du test |
-| `P` | pause | passe en pause (suspend les verdicts de couche) |
-| `R` | reprise | sort de pause |
-| `X` | arrêt / fin d'impression | finalise la dernière couche, désarme tout, retour au repos |
-| `?` | demande d'état | répond `RDY` |
+Correspondance drapeau → verdict : `CRASH`→`STOP CRASH`, `OBSTACLE`→`STOP OBSTACLE`,
+`APPUI`→`PAUSE APPUI`, `FAIBLE`→`PAUSE FAIBLE`, `FEP`→`PAUSE FEP`.
 
-L'`aire` sert à comparer les couches entre elles (une grande surface arrache plus
-qu'une petite) : sans elle, la détection suppose une surface constante et devient
-moins fiable sur les pièces à géométrie variable. Le trancheur la connaît par couche.
+### 4. Machine à états et délais
+Le verdict d'une couche est émis quand elle est finalisée (au début de l'arrachement de la
+couche suivante), ou pour la dernière couche sur `X`. `STOP` est prioritaire : la carte
+mère coupe l'UV et remonte le plateau. `PAUSE`/`STOP` sont des **demandes** ; la carte mère
+reste maître. Perte de liaison (silence > 2 s pendant une impression) : la carte mère décide.
 
-## 3. Banc → carte mère (réponses et événements)
+### 5. État de l'implémentation
+Émis : `RDY`, `VAT …`, `OK`/`PAUSE`/`STOP <code> <n>`, `ALRM FORCE`, `ERR`.
+Réservé : `WAIT`/`GO` (mise en attente de l'exposition tant que la résine bouge ; la mesure
+existe dans `msla_stabilite`).
 
-| Trame | Quand | Signification |
-|---|---|---|
-| `RDY` | démarrage, réponse à `?` | banc prêt |
-| `VAT OK` | après `V` | bac propre : impression possible |
-| `VAT <code>` | après `V` | bac non conforme (`RESIDU`, `ERREUR`) : impression déconseillée |
-| `WAIT` | fin de descente, résine encore en mouvement | la carte mère doit retarder l'exposition *(réservé, cf. §6)* |
-| `GO` | résine stabilisée | l'exposition peut commencer *(réservé, cf. §6)* |
-| `OK <n>` | couche n analysée, saine | — |
-| `PAUSE <code> <n>` | anomalie récupérable à la couche n | demande de pause (inspection opérateur) |
-| `STOP <code> <n>` | danger à la couche n | demande d'arrêt immédiat |
-| `ALRM <code>` | événement capteur | `FORCE` (effort au-delà du seuil) |
-| `ERR` | trame non reconnue | — |
+---
 
-Le verdict d'une couche est émis quand elle est finalisée (au début de l'arrachement
-de la couche suivante), ou pour la dernière couche sur `X`. Correspondance entre les
-drapeaux de la bibliothèque `msla_detect` et le verdict :
+## English
 
-| Drapeau | Signification | Verdict |
-|---|---|---|
-| `CRASH` | blocage / écrasement du moteur | `STOP CRASH <n>` |
-| `OBSTACLE` | obstacle à la descente | `STOP OBSTACLE <n>` |
-| `APPUI` | appui résiduel (corps étranger) | `PAUSE APPUI <n>` |
-| `FAIBLE` | arrachement trop faible (décollement probable) | `PAUSE FAIBLE <n>` |
-| `FEP` | film détendu | `PAUSE FEP <n>` |
+### 1. Physical layer
+| Parameter | Value |
+|---|---|
+| ESP32 port | `Serial2` (UART2) |
+| Speed | 115200 baud, 8N1 |
+| Pins | RX2 = GPIO16, TX2 = GPIO17 (3.3 V) |
+| Frames | ASCII lines end with `\n` (LF), 32 characters max |
+| Master | the motherboard |
 
-Les dangers (plateau bloqué ou qui écrase) donnent `STOP` ; les anomalies
-récupérables donnent `PAUSE`. La carte mère reste maître de la décision (cf. §4).
+### 2. Motherboard to bench
+| Frame | Function |
+|---|---|
+| `L <n> [area]` | start of layer n; `area` = exposed area in mm² (recommended) |
+| `U 1` / `U 0` | UV on / off |
+| `V` | do the vat control; answers `VAT …` |
+| `P` / `R` | pause / resume |
+| `X` | stop; finalize the last layer |
+| `?` | state; answers `RDY` |
 
-## 4. Machine à états de l'impression
+### 3. Bench to motherboard
+| Frame | Meaning |
+|---|---|
+| `RDY` | the bench is ready |
+| `VAT OK` / `VAT RESIDU` / `VAT ERREUR` | result of the vat control |
+| `OK <n>` | layer n is good |
+| `PAUSE <code> <n>` | recoverable fault at layer n |
+| `STOP <code> <n>` | danger at layer n |
+| `ALRM FORCE` | force above the threshold |
+| `ERR` | frame not understood |
 
+Flag to verdict: `CRASH`→`STOP CRASH`, `OBSTACLE`→`STOP OBSTACLE`, `APPUI`→`PAUSE APPUI`,
+`FAIBLE`→`PAUSE FAIBLE`, `FEP`→`PAUSE FEP`.
+
+### 4. State machine and timing
+The verdict of a layer is sent when the layer is finalized (at the start of the peel of the
+next layer), or for the last layer on `X`. `STOP` has priority: the motherboard cuts the UV
+and lifts the platform. `PAUSE`/`STOP` are **requests**; the motherboard makes the decision.
+Loss of link (silence > 2 s during a print): the motherboard decides.
+
+### 5. Implementation state
+Sent: `RDY`, `VAT …`, `OK`/`PAUSE`/`STOP <code> <n>`, `ALRM FORCE`, `ERR`.
+Reserved: `WAIT`/`GO` (hold the exposure until the resin is stable; the measurement is in
+`msla_stabilite`).
+
+### 6. Example
 ```
-        ┌────────────────────────── X ──────────────────────────┐
-        ▼                                                        │
-     REPOS ──V──► CONTROLE_BAC ──VAT OK──► PRET ──L n──► COUCHE ─┘
-                       │                              ▲    │
-                       └── VAT <code> ──► (la carte   │    │ U 1 … U 0
-                           mère décide)               └────┘  → OK/PAUSE/STOP n
-```
-
-- `STOP` est prioritaire : la carte mère coupe l'UV et remonte le plateau.
-- `PAUSE` et `STOP` sont des **demandes** ; la carte mère reste maître de la décision.
-
-## 5. Délais et replis sûrs
-
-- Après `V`, attendre `VAT …` au plus ~30 s (durée du test de descente). Au-delà :
-  réessayer ou abandonner.
-- Verdict d'une couche émis quand elle est finalisée (au début de l'arrachement de
-  la couche suivante). Une couche saine donne `OK <n>`, un défaut `PAUSE`/`STOP`.
-  La toute dernière couche est finalisée sur `X`.
-- Perte de liaison (silence du banc > 2 s pendant une impression) : la carte mère
-  décide (continuer, ou mettre en pause par sécurité).
-
-## 6. État de l'implémentation firmware
-
-Émis aujourd'hui par `banc_msla.ino` : `RDY`, `VAT OK`/`VAT RESIDU`/`VAT ERREUR`,
-`OK <n>`, `PAUSE <code> <n>` et `STOP <code> <n>` (détection par couche par
-apprentissage : `CRASH`, `OBSTACLE`, `APPUI`, `FAIBLE`, `FEP`), `ALRM FORCE`, `ERR`.
-
-La détection par couche tourne en direct : le banc déduit les phases (descente,
-arrachement, exposition, attentes) du mouvement Z et de l'UV annoncés par la carte
-mère, construit les features de chaque couche et les passe au détecteur de la
-bibliothèque `msla_detect`. Le comportement est vérifié par le test
-`tests/couche_live` : sur les scénarios du simulateur, le défaut est signalé à la
-bonne couche, sans fausse alerte sur une impression normale.
-
-Réservé (défini par le protocole, pas encore émis) : `WAIT`/`GO`, mise en attente de
-l'exposition tant que la résine n'est pas stabilisée (la bibliothèque sait mesurer
-cette stabilisation, cf. `msla_stabilite` ; il reste à la câbler sur `Serial2`).
-
-## 7. Exemple d'échange
-
-```
-carte mère → banc    V
-banc → carte mère    VAT OK
-carte mère → banc    L 0 18.0        (couche 0, 18 mm² exposés)
-carte mère → banc    U 1
-carte mère → banc    U 0
-carte mère → banc    L 1 18.0
-carte mère → banc    U 1
-banc → carte mère    OK 0            (verdict de la couche 0, à l'arrachement de la 1)
-carte mère → banc    U 0
+motherboard → bench   V
+bench → motherboard   VAT OK
+motherboard → bench   L 0 18.0
+motherboard → bench   U 1
+motherboard → bench   U 0
+motherboard → bench   L 1 18.0
+motherboard → bench   U 1
+bench → motherboard   OK 0
 ...
-carte mère → banc    L 30 2.0
-banc → carte mère    OK 29
-carte mère → banc    U 1
-...
-banc → carte mère    STOP OBSTACLE 30
-carte mère → banc    X
+bench → motherboard   STOP OBSTACLE 30
+motherboard → bench   X
 ```
 
-Remarque sur le temps : le verdict de la couche n arrive pendant l'impression de la
-couche n+1 (dès son arrachement). La carte mère reçoit donc `STOP OBSTACLE 30`
-alors qu'elle commence la couche 31 ; à elle de couper l'UV et de remonter.
+---
+
+## 中文
+
+### 1. 物理层
+| 参数 | 取值 |
+|---|---|
+| ESP32 端口 | `Serial2`（UART2） |
+| 速率 | 115200 波特，8N1 |
+| 引脚 | RX2 = GPIO16，TX2 = GPIO17（3.3 V） |
+| 帧 | 以 `\n`（LF）结尾的 ASCII 行，最多 32 字符 |
+| 主机 | 主板 |
+
+### 2. 主板 → 测量台
+| 帧 | 作用 |
+|---|---|
+| `L <n> [面积]` | 第 n 层开始；`面积` = 曝光面积（mm²，建议提供） |
+| `U 1` / `U 0` | 紫外光 开 / 关 |
+| `V` | 执行料槽检查；返回 `VAT …` |
+| `P` / `R` | 暂停 / 恢复 |
+| `X` | 停止；结算最后一层 |
+| `?` | 查询状态；返回 `RDY` |
+
+### 3. 测量台 → 主板
+| 帧 | 含义 |
+|---|---|
+| `RDY` | 测量台就绪 |
+| `VAT OK` / `VAT RESIDU` / `VAT ERREUR` | 料槽检查结果 |
+| `OK <n>` | 第 n 层正常 |
+| `PAUSE <code> <n>` | 第 n 层出现可恢复异常 |
+| `STOP <code> <n>` | 第 n 层出现危险 |
+| `ALRM FORCE` | 受力超过阈值 |
+| `ERR` | 无法识别的帧 |
+
+标志到判定：`CRASH`→`STOP CRASH`、`OBSTACLE`→`STOP OBSTACLE`、`APPUI`→`PAUSE APPUI`、
+`FAIBLE`→`PAUSE FAIBLE`、`FEP`→`PAUSE FEP`。
+
+### 4. 状态机与时序
+某一层的判定在该层结算时发出（即下一层开始剥离时），最后一层在收到 `X` 时结算。`STOP`
+优先：主板应切断紫外光并抬升平台。`PAUSE`/`STOP` 都是**请求**，由主板做最终决定。链路中断
+（打印过程中静默 > 2 秒）时由主板决定如何处理。
+
+### 5. 实现状态
+已发送：`RDY`、`VAT …`、`OK`/`PAUSE`/`STOP <code> <n>`、`ALRM FORCE`、`ERR`。
+预留：`WAIT`/`GO`（在树脂稳定前暂缓曝光；测量已在 `msla_stabilite` 中实现）。

@@ -1,10 +1,14 @@
-# Software Developer Guide — MSLA Detection
+# Software Developer Guide — MSLA Detection / 软件开发者指南
+
+Languages / 语言 : [English](#english) · [中文](#中文)
+
+## English
 
 Audience: software development engineers who continue or extend the detection software.
 Goal: give you the architecture, the public API, the data flow, the thresholds, the test
 method, and the extension points, so you can take over the code.
 
-For the hardware, the assembly, and the STE100 specification, see `DETECTION_SPEC_EN.md`.
+For the hardware, the assembly, and the STE100 specification, see `DETECTION_SPEC.md`.
 
 ---
 
@@ -250,3 +254,73 @@ The exact detection behavior is defined by the parity test: the simulator makes 
 same verdict. If you change the detection, change the simulator and the library together,
 and keep `tests/lib/run.sh` green. This is how the project confirms the firmware detection
 without the hardware.
+
+---
+
+## 中文
+
+面向继续开发或扩展检测软件的软件工程师。目标：提供架构、公共 API、数据流、阈值、测试方法与扩展点，
+以便你接手代码。硬件、装配与 STE100 规范见 `DETECTION_SPEC.md`。API 签名、代码块与表格为语言无关，
+见上方英文版对应小节。
+
+### 1. 仓库结构
+`lib/msla_detect/` = 可移植 C++17 检测库（无 Arduino、无动态内存）；
+`firmware/banc_msla/banc_msla.ino` = ESP32 固件（传感器 I/O + 串口，调用库）；
+`firmware/banc_msla/src/msla_detect` = 指向库的符号链接（供 Arduino IDE 编译）；
+`firmware/PROTOCOLE.md` = 串口协议；`simulateur/index.html` = 物理模拟器 + 参考检测（JS）；
+`tests/lib/` = 一致性（C++ 库须与模拟器一致）；`tests/couche_live/` = 固件打印中检测路径；
+`tests/firmware_host/` = 料槽检查；`tests/protocole/` = 串口协议；`tests/perf/` = 性能分析。
+
+设计原则：所有检测逻辑在库中；固件只读传感器、推断相位、调用库、格式化串口消息。JS 模拟器为参考，
+C++ 库须给出相同判定（由一致性测试保证）。
+注：库头文件注释为英文+中文双语；实现文件（.cpp/.ino）注释为英文；行为亦由语言无关的测试定义。
+
+### 2. 编译与测试
+需 node、g++（C++17）、python3+numpy。测试命令见上方英文版第 2 节。CI 在每次推送/PR 运行全部通过性测试。
+单独编译库：`g++ -std=c++17 -c lib/msla_detect/msla_*.cpp`。
+
+### 3. 数据流
+**打印中检测（一个采样到一个判定）：** HX711 力 f[0] → med3（3 点中值，延迟 1 个采样）；
+由 Z 速度 + UV + 层号 → 相位（0–4）+ 层号 + 面积；→ `SuiviCouches.pousser(...)`（逐层构建一个 Feature，
+在下一层剥离开始时返回已结算层）→ `DetecteurCouche.pousser(...)`（学习 + 标志）→ 判定
+`OK/PAUSE/STOP` → Serial2。固件中 `detEchantillon()` 完成 med3 与相位标注，再调用两个库类，
+最后 `detFlux()` 把标志映射为串口判定。
+**料槽检查（流式状态机）：** 采样 (t,z,f[5],uv) → `BacControleur.maj(...)`（状态机 WAIT→DESC→HOLD，
+就绪时返回事件）→ `ControleResultat/PlaneiteResultat/ReferenceResultat` → 串口文本。
+
+### 4. 公共 API
+全部在 `namespace msla`。调用方拥有所有缓冲区，库不分配内存。检测运算用 `double` 以与 JS 参考逐位一致。
+各模块签名见上方英文版第 4 节：`msla_filtres`（mediane / med3 / moy_glissante）、
+`msla_couche`（Serie、Feature、Flag、LayerFlags；批处理 prep/features/detect/verdict；
+流式类 `DetecteurCouche`、`SuiviCouches`）、`msla_stabilite`（stability 等，用于预留的 WAIT/GO）、
+`msla_bac`（`BacControleur`、analysePesee、analyseFuite）。`key` 取 `"z"/"vat"/"sg"/"fus"`，选择地板阈值。
+
+### 5. 阈值表
+每传感器的地板阈值（`floorPour()`）：z/fus = {p 0.4, c 0.8, s 0.25}；vat = {2.0, 2.5, 1.0}；
+sg = {10, 12, 不用}。应用参数（默认，figurine）：lowRatio 0.6、obstacleMul 2.5、settleMargin 0。
+`nm` 为噪声水平（随传感器分辨率自适应）；`fstall` 为 Z 电机最大推力（comp ≤ −0.93 × fstall 判 CRASH）。
+固件以全局量 `detNoise`、`detObstacleMul`、`detLowRatio` 保存，`fstall` 用 `cfg.zMaxN`。
+一层内标志顺序：CRASH 或 OBSTACLE → APPUI → FAIBLE → FEP。学习用最近 6 个正常层，需 3 个正常层才开始；
+连续 4 个 FAIBLE 后学习新水平。
+
+### 6. 固件集成点
+`loop()`：读 HX711 → f[5]、z、uvState，调用 `ckUpdate()` 与 `detEchantillon()`；
+`detEchantillon(t,z,f0)`：med3、相位标注、`detSuivi.pousser()` → `detDet.pousser()` → `detFlux()`；
+`detFlux()`：把标志映射为 Serial2 上的 `OK`/`PAUSE`/`STOP`；
+`detDemarrer()`/`detArreter()`：首个 `L` 启动 / `X` 结算；
+`ckArm()`/`ckUpdate()`：封装 `BacControleur` 做料槽检查；
+`protocolePoll()`/`protocoleCommande()`：读取并执行 Serial2 命令。
+相位标注：Z 速度给出下降(2)/剥离(1)；静止时 UV 给出曝光(0)，Z 高度给出顶部等待(3,高)/底部等待(4,低)。
+med3 窗口在换层时清空，使一层的力不渗入下一层。
+
+### 7. 如何扩展
+**加入 WAIT/GO（曝光等待）：** 库已能测稳定时间（`msla_stabilite`）。下降停止后对 Z 轴力做流式稳定判定，
+斜率高于阈值时发 `WAIT`，稳定后发 `GO`，主板据此暂缓曝光直到 `GO` 或超时。入口在 `detEchantillon()` 或新函数。
+**改阈值：** 噪声/应用参数用固件全局量；地板阈值在 `floorPour()`。改后运行一致性与 couche_live 测试。
+**用 5 传感器融合：** 库支持 `"fus"`；在固件中把融合力喂给检测，并 `detDet.init("fus", ...)`。
+**加新故障标志：** 在 `Flag` 枚举与 features/detect 中加入（同时改 JS 模拟器以保持一致），
+在 `detFlux()` 映射为判定，并在模拟器导出与 couche_live 测试中加场景。
+
+### 8. 测试即行为规范
+确切的检测行为由一致性测试定义：模拟器生成场景（受力曲线 + 来自真值的正确判定），C++ 库回放并须给出相同判定。
+改动检测时须同时改模拟器与库，并保持 `tests/lib/run.sh` 通过。这是本项目在没有硬件时确认固件检测的方式。
