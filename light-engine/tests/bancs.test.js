@@ -23,6 +23,11 @@ for (const f of ['bancs-mesure-fr.pdf', 'bancs-mesure-en.pdf', 'bancs-mesure-zh.
   ok(b.length > 10000, f + ' présent et non vide');
   ok(f.endsWith('.pdf') ? b.slice(0, 4).toString() === '%PDF' : b.slice(0, 2).toString() === 'PK', f + ' : format valide');
 }
+const note = fs.readFileSync(path.join(__dirname, '..', 'note-distance-precision', 'index.html'), 'utf8');
+ok(/Pourquoi la précision double/.test(note) && /<script>/.test(note), 'note distance et précision présente');
+ok(fs.readFileSync(path.join(__dirname, '..', 'note-distance-precision', 'note-distance-precision.pdf')).slice(0, 4).toString() === '%PDF', 'PDF de la note valide');
+const zipb = fs.readFileSync(path.join(dir, 'motifs-uvtools.zip'));
+ok(zipb.includes(Buffer.from('F_champ_complet.png')), 'le pack contient le motif de champ complet');
 ok(/id="pdfLink"/.test(html) && /id="zipLink"/.test(html), 'liens de téléchargement du PDF et du ZIP présents');
 ok(/localStorage|bancs-mesure-lang/.test(html), 'langue mémorisée dans le navigateur');
 console.log(`${n} tests du dossier de procédures passent.`);

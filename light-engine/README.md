@@ -70,6 +70,10 @@ Cinq bancs de mesure pour obtenir les valeurs de « Optique de la lumière » et
 
 Les valeurs de repère du dossier (budgets, seuils de validation, incertitudes) sont des ordres de grandeur, non validés sur du matériel réel.
 
+## Note technique : distance, angle et précision
+
+**En ligne : https://kreuille.github.io/simulation-light/light-engine/note-distance-precision/** (PDF dans le même dossier). Explique, avec croquis, pourquoi l'erreur d'une machine LCD à lentille de Fresnel est proportionnelle à la distance écran → résine (50 µm à 0,35 mm, 100 µm à 0,7 mm : un angle équivalent de 8,1° dans les deux cas), liste les essais pour confirmer sur les machines, et donne la marche à suivre pour le reproduire dans le simulateur. Le pack de motifs contient pour cela le motif `F_champ_complet` (anneaux numérotés sur tout le champ). Les angles et valeurs d'exemple sont des hypothèses, non des mesures.
+
 ## Hypothèses du modèle
 
 - **Optique.** L'image au plan de polymérisation est l'image du masque convoluée par une réponse impulsionnelle (PSF) = disque (cône de lumière, rayon = jeu × tan θ, θ limité par l'angle maximal admis) ⊗ gaussienne. Diffusion : 15 µm par mm de jeu × (405/λ)⁴, plus un terme de diffusion dans la résine 25/(1 + 3·photobloqueur) × (λ/405)³. Le DLP n'a pas de cône : son flou vient de l'objectif et du DMD.

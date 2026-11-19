@@ -1,0 +1,555 @@
+<title>Distance, angle et précision</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Concept : manuel d'atelier. Papier gris-bleu, encre sombre, violet UV 405 nm comme seul accent. Chaque banc = matériel, croquis, procédure, fiche de calcul. */
+:root{
+  --bg:#f3f4f9; --surface:#ffffff; --fg:#161a2b; --muted:#586078; --line:#d8dbe7;
+  --accent:#5b3df5; --accent-soft:#ece8ff; --warn:#b4400b; --warn-soft:#fdeee4; --ok:#17803d;
+  --uv:#6d4cff; --m1:#d7dbe6; --m2:#98a0b4; --m3:#5d6579; --body1:#3a4059; --body2:#1d2133;
+  --glass:rgba(110,170,225,.38); --glass2:rgba(110,170,225,.16); --lcd:#262b42; --pix:#fff3a8;
+  --font-d:'Space Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-b:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-m:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1019; --surface:#171a29; --fg:#eceef8; --muted:#9aa2bb; --line:#2a2e44;
+    --accent:#a897ff; --accent-soft:#25214a; --warn:#ff9a62; --warn-soft:#33200f; --ok:#4ade80;
+    --uv:#a08bff; --m1:#4a5168; --m2:#6c7590; --m3:#98a0b8; --body1:#59617d; --body2:#2b3047;
+    --glass:rgba(120,180,235,.34); --glass2:rgba(120,180,235,.14); --lcd:#0b0d16; --pix:#fff3a8;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1019; --surface:#171a29; --fg:#eceef8; --muted:#9aa2bb; --line:#2a2e44;
+  --accent:#a897ff; --accent-soft:#25214a; --warn:#ff9a62; --warn-soft:#33200f; --ok:#4ade80;
+  --uv:#a08bff; --m1:#4a5168; --m2:#6c7590; --m3:#98a0b8; --body1:#59617d; --body2:#2b3047;
+  --glass:rgba(120,180,235,.34); --glass2:rgba(120,180,235,.14); --lcd:#0b0d16; --pix:#fff3a8;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--font-b);margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 64px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:30}
+.wrap{max-width:1000px;margin:0 auto}
+h1,h2,h3{font-family:var(--font-d);font-weight:600;letter-spacing:-.01em;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,5vw,42px);line-height:1.1}
+h2{font-size:clamp(22px,3.4vw,28px);margin-top:56px;padding-top:8px}
+h3{font-size:18px;margin-top:28px}
+h4{font:600 12px var(--font-b);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:24px 0 8px}
+p{margin:10px 0;max-width:72ch;text-wrap:pretty}
+a{color:var(--accent)}
+code,.mono{font-family:var(--font-m);font-size:.92em}
+code{background:var(--accent-soft);padding:1px 5px;border-radius:4px}
+header.top{padding-block:40px 20px;position:relative}
+.lang{position:absolute;right:0;top:12px}
+#langBtn{display:inline-flex;align-items:center;gap:6px;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:999px;padding:6px 10px;font:500 13px var(--font-b);cursor:pointer}
+#langBtn:hover{border-color:var(--accent)}#langBtn:focus-visible,#langMenu button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+#langBtn svg{width:20px;height:20px;color:var(--accent)}#langBtn svg.chev{width:14px;height:14px;color:var(--muted)}
+#langMenu{position:absolute;right:0;top:calc(100% + 6px);list-style:none;margin:0;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(20,16,60,.18);min-width:160px;z-index:40}
+#langMenu[hidden]{display:none}
+#langMenu button{width:100%;display:flex;justify-content:space-between;gap:12px;text-align:left;background:transparent;color:var(--fg);border:0;border-radius:7px;padding:9px 10px;font:500 14px var(--font-b);cursor:pointer}
+#langMenu button:hover{background:var(--accent-soft)}#langMenu button[aria-checked="true"]{color:var(--accent);font-weight:600}
+.kicker{padding-right:120px}
+.kicker{font:600 12px var(--font-b);letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.lead{font-size:17px;color:var(--muted);max-width:68ch;margin-top:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;font-size:13px}
+nav.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line);margin:0 calc(-1*max(16px,env(safe-area-inset-left,0px)));padding:8px max(16px,env(safe-area-inset-left,0px));overflow-x:auto;white-space:nowrap}
+nav.toc a{display:inline-block;text-decoration:none;color:var(--fg);font-size:13px;padding:5px 11px;border-radius:999px;margin-right:4px}
+nav.toc a:hover,nav.toc a:focus-visible{background:var(--accent-soft);color:var(--accent);outline:none}
+section{scroll-margin-top:60px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.warn{background:var(--warn-soft);border:1px solid var(--warn);border-radius:10px;padding:14px 18px;color:var(--fg)}
+.warn b.t{color:var(--warn);font-family:var(--font-d);font-size:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.grid2>*,.grid3>*{min-width:0}
+@media (max-width:720px){.grid2,.grid3{grid-template-columns:1fr}}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;background:var(--bg);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.bench-head{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-top:56px}
+.bench-head .tag{font:600 13px var(--font-d);background:var(--accent);color:var(--surface);border-radius:6px;padding:2px 10px}
+.bench-head h2{margin:0;padding:0}
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted);margin:6px 0 14px}
+.meta b{color:var(--fg);font-weight:600}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:12px 0}
+ol.steps>li{counter-increment:s;position:relative;padding:2px 0 14px 44px;max-width:76ch}
+ol.steps>li::before{content:counter(s);position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font:600 13px/28px var(--font-d);text-align:center}
+ul.tight{margin:8px 0;padding-left:20px;max-width:72ch}
+ul.tight li{margin:4px 0}
+.out{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;padding:10px 14px;margin:14px 0;max-width:76ch}
+.out b{font-family:var(--font-d)}
+figure{margin:18px 0}
+.fw{overflow-x:auto;border-radius:10px}
+figure svg{display:block;width:100%;min-width:680px;height:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;color:var(--fg)}
+figcaption{font-size:13px;color:var(--muted);margin-top:8px;max-width:84ch}
+figcaption b{color:var(--fg)}
+/* SVG */
+svg text{font:12px var(--font-b);fill:currentColor}
+svg .t-sm{font-size:11px;fill:var(--muted)}
+svg .t-b{font-weight:600}
+svg .t-h{font:600 13px var(--font-d)}
+svg .t-acc{fill:var(--accent);font-weight:600}
+svg .t-warn{fill:var(--warn);font-weight:600}
+svg .ln{stroke:currentColor;stroke-width:1.2;fill:none}
+svg .ln-m{stroke:var(--muted);stroke-width:1;fill:none}
+svg .dim{stroke:var(--muted);stroke-width:1;fill:none;marker-start:url(#mk);marker-end:url(#mk)}
+svg .lead-l{stroke:var(--muted);stroke-width:1;fill:none}
+svg .metal{fill:url(#gMetal);stroke:var(--m3);stroke-width:1}
+svg .body{fill:url(#gBody);stroke:var(--body2);stroke-width:1}
+svg .glass{fill:var(--glass);stroke:var(--accent);stroke-width:.8}
+svg .glass2{fill:var(--glass2);stroke:var(--accent);stroke-width:.6}
+svg .lcd{fill:var(--lcd);stroke:var(--m3);stroke-width:1}
+svg .beam{fill:url(#gBeam)}
+svg .ray{stroke:var(--uv);stroke-width:1.3;fill:none}
+svg .ray-d{stroke:var(--uv);stroke-width:1;fill:none;stroke-dasharray:4 3}
+svg .pix{fill:var(--pix)}
+svg .paper{fill:#fff;fill-opacity:.82;stroke:var(--m2);stroke-width:1}
+svg .acc{stroke:var(--accent);stroke-width:2;fill:none}
+svg .accf{fill:var(--accent)}
+svg .warnf{fill:var(--warn-soft);stroke:var(--warn);stroke-width:1}
+svg .ok{stroke:var(--ok);stroke-width:2;fill:none}
+.cal{display:grid;gap:12px;margin:14px 0}
+.cal .inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.cal label{display:block;font-size:12px;color:var(--muted)}
+.cal input[type=number]{width:100%;font:500 14px var(--font-m);padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--fg)}
+.cal input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.rowsT{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.res{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.res div{background:var(--bg);border-radius:8px;padding:8px 12px}
+.res span{display:block;font-size:12px;color:var(--muted)}
+.res b{font:600 18px var(--font-d);font-variant-numeric:tabular-nums}
+.ex{font-size:12px;color:var(--warn);font-weight:600}
+pre{background:var(--body2);color:#eceef8;border-radius:10px;padding:14px 16px;overflow-x:auto;font:12.5px/1.55 var(--font-m);margin:12px 0}
+button.copy{font:500 12px var(--font-b);border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:7px;padding:5px 10px;cursor:pointer}
+button.copy:focus-visible{outline:2px solid var(--accent)}
+footer{margin-top:64px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px}
+.chip.dl{text-decoration:none;color:var(--accent);border-color:var(--accent);font-weight:500}
+.chip.dl:hover,.chip.dl:focus-visible{background:var(--accent-soft);outline:none}
+@media print{nav.toc,body::before,button.copy,.lang,.chip.dl{display:none}body{background:#fff;padding-block:0}header.top{padding-block:0 12px}figure,.card,table,.out,.warn{break-inside:avoid}figure svg{min-width:0}.fw{overflow:visible}h2,h3,h4,.bench-head{break-after:avoid}pre{white-space:pre-wrap}.tw{overflow:visible}ol.steps>li{break-inside:avoid}}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+.mapcap{font-size:13px;color:var(--muted);margin-top:6px}.leg{display:flex;align-items:center;flex-wrap:wrap}.chip.dl{text-decoration:none;color:var(--accent);border-color:var(--accent);font-weight:500}
+@media print{.chip.dl{display:none}}
+</style>
+<!-- définitions graphiques partagées par tous les croquis -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="gMetal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--m1)"/><stop offset=".5" style="stop-color:var(--m2)"/><stop offset="1" style="stop-color:var(--m3)"/></linearGradient>
+    <linearGradient id="gBody" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--body2)"/><stop offset=".35" style="stop-color:var(--body1)"/><stop offset="1" style="stop-color:var(--body2)"/></linearGradient>
+    <linearGradient id="gBeam" x1="0" y1="1" x2="0" y2="0"><stop offset="0" style="stop-color:var(--uv);stop-opacity:.55"/><stop offset="1" style="stop-color:var(--uv);stop-opacity:.06"/></linearGradient>
+    <marker id="mk" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1.5 L8.5 5 L1 8.5 Z" style="fill:var(--muted)"/></marker>
+    <marker id="mkA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1.5 L9 5 L1 8.5 Z" style="fill:var(--accent)"/></marker>
+  </defs>
+</svg>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Note technique · LCD collimaté par lentille de Fresnel</div>
+  <h1>Pourquoi la précision double quand la résine s'éloigne de l'écran</h1>
+  <p class="lead">Deux machines identiques, 0,35 mm et 0,7 mm entre les pixels et la résine : environ 50 µm d'un côté, 100 µm de l'autre. Cette note explique le mécanisme avec des croquis, liste les essais pour le confirmer sur vos machines, et montre comment le reproduire dans le simulateur.</p>
+  <div class="chips">
+    <span class="chip">Machine A : 0,35 mm · ≈ 50 µm</span>
+    <span class="chip">Machine B : 0,7 mm · ≈ 100 µm</span>
+    <span class="chip">Pixel : 34 µm</span>
+    <a class="chip dl" href="note-distance-precision.pdf" target="_blank" rel="noopener">Télécharger le PDF</a>
+    <a class="chip dl" href="../bancs-mesure/motifs-uvtools.zip">Motifs d'écran (ZIP)</a>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sommaire">
+  <a href="#essentiel">L'essentiel</a><a href="#donnees">Vos mesures</a><a href="#meca">Le mécanisme</a><a href="#cartes">Carte d'erreur</a>
+  <a href="#causes">Causes possibles</a><a href="#tests">Essais à faire</a><a href="#sim">Dans le simulateur</a><a href="#agir">Pour tenir 50 µm</a><a href="#limites">Limites</a>
+</nav>
+
+<section id="essentiel">
+<h2>L'essentiel</h2>
+<div class="out">
+  <ol class="steps" style="margin:0">
+    <li>Les deux machines ont la même optique. <b>Seule la distance change</b> : 0,35 mm contre 0,7 mm.</li>
+    <li>L'erreur rapportée à la distance est la même : <b>143 µm par mm</b> dans les deux cas. Cela correspond à un angle équivalent de <b>8,1°</b>, car l'erreur vaut distance × tan(angle).</li>
+    <li>Ces 8° ne sont pas la divergence au centre (environ 2°). C'est le <b>pire angle sur la surface</b>, aux bords et dans les coins. Une précision « sur toute la surface » est une valeur au pire endroit.</li>
+    <li>Donc doubler la distance double l'erreur partout, et double aussi les écarts entre deux exemplaires dus à l'alignement de la lentille et de la LED.</li>
+    <li>La part de surface dans la tolérance (96 %) est la même : <b>la tolérance double avec la distance, comme l'erreur</b>. Les 4 % restants sont les coins.</li>
+  </ol>
+</div>
+<div class="warn" style="margin-top:14px"><b class="t">Ce qui reste à confirmer</b>
+<p style="margin:6px 0 0">D'où viennent ces 8° : un cône très ouvert dans les coins, un faisceau incliné, ou un autre effet qui croît avec la distance ? Les <a href="#tests">essais</a> servent à trancher. Le simulateur donne l'ordre de grandeur et le sens des effets, pas un ajustement calibré sur vos machines.</p></div>
+</section>
+
+<section id="donnees">
+<h2>Ce que nous avons compris de vos mesures</h2>
+<div class="tw"><table>
+<tr><th></th><th>Machine A</th><th>Machine B</th></tr>
+<tr><td>Écran, LED COB, lentille de Fresnel</td><td colspan="2">identiques</td></tr>
+<tr><td>Distance pixels → résine</td><td>0,35 mm</td><td>0,7 mm</td></tr>
+<tr><td>Précision annoncée « sur toute la surface »</td><td>≈ 50 µm</td><td>≈ 100 µm</td></tr>
+<tr><td>Part de surface dans cette tolérance</td><td>≈ 96 %</td><td>≈ 96 %</td></tr>
+<tr><td>Erreur ÷ distance</td><td>143 µm/mm</td><td>143 µm/mm</td></tr>
+<tr><td>Angle équivalent = atan(erreur ÷ distance)</td><td>8,1°</td><td>8,1°</td></tr>
+</table></div>
+<p>Nous avons lu les 96 % comme la part de la surface qui reste dans la tolérance. Si ce n'est pas le cas, ou si les 50 et 100 µm sont des classes de tolérance arrondies, la conclusion qualitative ne change pas (l'erreur suit la distance), mais le chiffre de 8,1° est à prendre avec réserve. <b>À préciser :</b> la « précision » est-elle une erreur maximale, un écart-type ou un percentile ?</p>
+</section>
+
+<section id="meca">
+<h2>Le mécanisme, en images</h2>
+<h3>Le bloc optique en coupe</h3>
+<p>La LED COB éclaire une lentille de Fresnel qui rend le faisceau presque parallèle. Chaque pixel de l'écran laisse passer un petit pinceau de lumière. Ce pinceau a une ouverture (le cône) et une direction moyenne (l'inclinaison). Entre le pixel et la résine, la lumière parcourt la distance d : elle s'étale et se décale proportionnellement à d.</p>
+<figure>
+<svg viewBox="0 0 1000 540" role="img" aria-label="Coupe du bloc optique : radiateur, LED COB, lentille de Fresnel, écran LCD, film FEP, résine et plateau, avec les rayons de la LED vers la lentille puis presque parallèles vers l'écran">
+  <g id="f1"></g>
+</svg>
+<figcaption><b>Figure 1.</b> Coupe du bloc optique (hauteurs et angles exagérés). Les rayons issus de la LED se rapprochent du parallèle après la lentille de Fresnel. Au centre le cône reste étroit ; vers les bords il s'ouvre et le faisceau peut s'incliner. La distance d entre le plan des pixels et la résine est la seule différence entre vos deux machines.</figcaption>
+</figure>
+
+<h3>Ce que voit la résine à 0,35 mm et à 0,7 mm</h3>
+<p>On suit un seul pixel. Il éclaire la résine sur une zone plus grande que lui, et plus loin du centre quand le faisceau est incliné. Les angles utilisés ici sont ceux de l'hypothèse « cône 2,3° au centre, 5° au bord, 3° d'inclinaison » qui donne 8° dans le pire cas.</p>
+<figure>
+<svg viewBox="0 0 920 520" role="img" aria-label="Quatre coupes : pixel éclairant la résine au centre et au bord, pour une distance de 0,35 mm et de 0,7 mm"><g id="f2"></g></svg>
+<figcaption><b>Figure 2.</b> La même lumière, deux distances. L'échelle horizontale est agrandie par rapport à la verticale. L'emprise du pixel sur la résine et son décalage sont proportionnels à d : au bord, le pire écart passe de 49 µm à 98 µm.</figcaption>
+</figure>
+
+<h3>L'erreur est une droite en fonction de la distance</h3>
+<figure>
+<svg viewBox="0 0 880 420" role="img" aria-label="Erreur en micromètres en fonction de la distance, pour plusieurs angles, avec les deux points mesurés alignés sur la droite de 8,1 degrés"><g id="f3"></g></svg>
+<figcaption><b>Figure 3.</b> Erreur = distance × tan(angle). Vos deux mesures (points orange) tombent sur la même droite, celle de 8,1°. Au centre de l'écran (2°), la même lumière donne 12 µm à 0,35 mm et 24 µm à 0,7 mm.</figcaption>
+</figure>
+</section>
+
+<section id="cartes">
+<h2>Pourquoi 96 % de la surface, et pas 100 %</h2>
+<p>L'angle effectif n'est pas le même partout : il est faible au centre et grandit vers les coins. Comme l'erreur vaut distance × tan(angle), la carte d'erreur de la machine B est celle de la machine A multipliée par 2. Si la tolérance double aussi, la même zone sort de la tolérance : les coins.</p>
+<figure>
+<div class="grid2" style="gap:12px">
+  <div><canvas id="mapA" width="480" height="270" style="width:100%;height:auto;border-radius:8px;border:1px solid var(--line)"></canvas><div class="mapcap" id="capA"></div></div>
+  <div><canvas id="mapB" width="480" height="270" style="width:100%;height:auto;border-radius:8px;border:1px solid var(--line)"></canvas><div class="mapcap" id="capB"></div></div>
+</div>
+<div id="mapleg" class="leg"></div>
+<figcaption><b>Figure 4.</b> Illustration du modèle (pas une mesure) : angle effectif de 2,3° au centre qui monte vers les coins, erreur = distance × tan(angle), même échelle de couleur pour les deux machines. Les hachures blanches marquent les zones hors tolérance (50 µm pour A, 100 µm pour B) : c'est la même région.</figcaption>
+</figure>
+</section>
+
+<section id="causes">
+<h2>D'où peuvent venir ces 8° ?</h2>
+<p>Trois explications sont possibles. Elles ne se valent pas : certaines demandent des défauts mécaniques énormes.</p>
+<div class="tw"><table>
+<tr><th>Hypothèse</th><th>Ce que ça suppose</th><th>Vraisemblance</th></tr>
+<tr><td><b>H1</b> · Le cône s'ouvre fortement dans les coins</td><td>Angle de 6 à 8° aux bords et aux coins, par aberration de la lentille hors axe et taille de la source. Une mesure indépendante donne 2° au centre et jusqu'à 4° sur les côtés pour une Saturn 2 ; d'autres machines mesurent 4 à 7°.</td><td>Plausible</td></tr>
+<tr><td><b>H2</b> · Cône d'environ 5° et faisceau incliné de 3°</td><td>Inclinaison de 3° : il faut un décentrage de la LED de 13 mm, ou une défocalisation de 26 mm, ou un gauchissement de 10 mm sur 100 mm (pour f = 250 mm, rayon 125 mm). Ce sont des défauts énormes.</td><td>Peu probable seul</td></tr>
+<tr><td><b>H3</b> · Autre effet qui croît avec la distance</td><td>Lumière oblique qui traverse les cristaux liquides de l'écran (fuite plus forte hors axe), reflets dans le film FEP, définition de la « précision » qui inclut un terme proportionnel à d.</td><td>À vérifier</td></tr>
+</table></div>
+<p>Dans tous les cas, ce qui fait doubler l'erreur est le même : <b>un angle multiplié par la distance</b>. Les essais ci-dessous servent à savoir de quel angle il s'agit.</p>
+
+<h3>Trois défauts qui inclinent le faisceau</h3>
+<figure>
+<svg viewBox="0 0 960 330" role="img" aria-label="Trois schémas : défocalisation, décentrage et gauchissement de la lentille, avec l'inclinaison du faisceau qui en résulte"><g id="f5"></g></svg>
+<figcaption><b>Figure 5.</b> Défocalisation (la LED n'est pas au foyer), décentrage (la LED est de côté) et gauchissement (la lentille n'est pas plane). Chacun incline le faisceau. L'inclinaison déplace l'image du pixel d'une quantité distance × tan(inclinaison) : à 0,7 mm, deux fois plus qu'à 0,35 mm. Angles exagérés.</figcaption>
+</figure>
+<figure>
+<svg viewBox="0 0 880 380" role="img" aria-label="Décalage en micromètres pour des inclinaisons de 1 à 4 degrés, à 0,35 mm et à 0,7 mm"><g id="f6"></g></svg>
+<figcaption><b>Figure 6.</b> Pourquoi les écarts entre exemplaires doublent. Deux machines dont les lentilles sont inclinées de 2° et 3° diffèrent de 6 µm à 0,35 mm et de 12 µm à 0,7 mm.</figcaption>
+</figure>
+
+<h3>Ce qui ne dépend pas de la distance</h3>
+<ul class="tight">
+  <li><b>La diffusion dans la résine</b> (photobloqueur, longueur d'onde) : environ 14 µm, qui monte seulement à 17 µm quand la distance double. C'est pourquoi le flou de bord ne double pas exactement dans le modèle (×1,4 à ×1,9).</li>
+  <li><b>La taille du pixel</b> : 34 µm, soit ±17 µm de quantification.</li>
+  <li><b>L'uniformité de la dose</b> : les coins plus sombres rendent les petits éléments plus petits. Ce terme existe aux deux distances.</li>
+  <li><b>Le retrait et l'axe Z</b>.</li>
+</ul>
+<p>Un rapport exactement égal à 2 entre vos deux erreurs suggère donc soit que le terme proportionnel à la distance domine, soit que 50 et 100 µm sont des classes de tolérance.</p>
+</section>
+
+<section id="tests">
+<h2>Les essais à faire</h2>
+<p>Ils se font sur les deux machines, dans le même ordre, avec la même résine, le même film et la même exposition. Les procédures détaillées et le matériel sont dans le <a href="../bancs-mesure/" target="_blank" rel="noopener">dossier des bancs de mesure</a>. Le motif <code>F_champ_complet</code> est ajouté au pack d'images (voir plus bas).</p>
+<figure>
+<svg viewBox="0 0 960 360" role="img" aria-label="Écran vu de dessus avec la grille d'anneaux du motif de champ complet et les trois positions de mesure d'angle : centre, milieu de bord, coin"><g id="f7"></g></svg>
+<figcaption><b>Figure 7.</b> Motif de champ complet (11 × 6 anneaux de 10 mm tous les 24 mm, numérotés) et positions de mesure de l'angle (centre, milieu de bord, coin).</figcaption>
+</figure>
+<div class="tw"><table>
+<tr><th>Essai</th><th>Ce qu'on fait</th><th>Ce qu'on attend selon l'hypothèse</th></tr>
+<tr><td><b>E1</b> · Carte d'erreur sur tout le champ</td><td>Imprimer une couche du motif <code>F_champ_complet</code> sur chaque machine. Mesurer pour chaque anneau le diamètre extérieur et la position (règle étalon, scanner ou pied à coulisse sur des anneaux repérés). Calculer l'écart à la position nominale et au diamètre nominal.</td><td>Si l'écart croît avec le rayon : cône ou défocalisation. Si l'écart est uniforme : décentrage. Si irrégulier : gauchissement. La carte de B doit être celle de A multipliée par environ 2.</td></tr>
+<tr><td><b>E2</b> · Angle en trois points</td><td>Banc C1 (carré blanc, papier calque à plusieurs distances) au centre, au milieu d'un bord et dans un coin, sur les deux machines.</td><td>H1 : angle de coin de 6 à 8° et angle central de 2 à 3°. H2 : angle central faible, tous les angles décalés dans le même sens.</td></tr>
+<tr><td><b>E3</b> · Test de la proportionnalité à la distance</td><td>Sur la machine A, poser sur l'écran un verre de 0,5 mm (indice 1,52) : il ajoute environ 0,5 / 1,52 = 0,33 mm de distance équivalente. Répéter E1.</td><td>Si l'erreur de A passe à environ 100 µm : l'erreur est bien proportionnelle à la distance. Sinon, un autre effet intervient (H3).</td></tr>
+<tr><td><b>E4</b> · Uniformité et dose</td><td>Banc D : radiomètre sur 9 points, écran blanc, puis noir.</td><td>Des coins plus sombres de quelques pour cent expliquent un biais de diamètre indépendant de la distance.</td></tr>
+<tr><td><b>E5</b> · Séparer position et largeur</td><td>Dans E1, ajuster une échelle et une translation sur les positions des anneaux. Les résidus mesurent l'irrégularité. Les diamètres mesurent la largeur (flou et dose).</td><td>La part « position » se corrige par logiciel (échelle et décalage propres à la machine). La part « largeur » ne se corrige pas.</td></tr>
+<tr><td><b>E6</b> · Échange des blocs optiques (si possible)</td><td>Permuter le bloc LED et lentille entre A et B, refaire E1.</td><td>Si l'erreur suit le bloc : tolérances de la lentille et de la LED. Si elle reste avec la machine : écran, distance ou film.</td></tr>
+</table></div>
+<h3>Lire les résultats</h3>
+<div class="tw"><table>
+<tr><th>Observation</th><th>Cause probable</th><th>Action</th></tr>
+<tr><td>Position qui dérive proportionnellement au rayon</td><td>Défocalisation de la LED</td><td>Régler la distance LED–lentille</td></tr>
+<tr><td>Décalage uniforme dans une direction</td><td>Décentrage de la LED ou inclinaison de la lentille</td><td>Recentrer, ou corriger par un décalage logiciel</td></tr>
+<tr><td>Diamètres qui grossissent vers les coins, positions correctes</td><td>Cône qui s'ouvre (angle de bord élevé)</td><td>Source plus petite, focale plus longue, grille de collimation</td></tr>
+<tr><td>Écart irrégulier qui tourne avec la lentille quand on la retourne de 180°</td><td>Gauchissement de la lentille</td><td>Lentille plus rigide ou mieux maintenue</td></tr>
+<tr><td>Carte de B = carte de A × 2</td><td>Distance seule (optique identique)</td><td>Réduire d, ou réduire l'angle de bord</td></tr>
+</table></div>
+</section>
+
+<section id="sim">
+<h2>Reproduire dans le simulateur</h2>
+<p><a href="https://kreuille.github.io/simulation-light/light-engine/simulateur/" target="_blank" rel="noopener">Ouvrir le simulateur</a> (langue au choix avec le globe en haut à droite). Le modèle simplifie : il applique un gradient de flou de gauche à droite, pas une carte d'angle en 2D, et le motif dentaire de test est très sensible à la fermeture des petits jeux. Il reproduit donc le sens et l'ordre de grandeur, pas les pourcentages exacts de vos machines.</p>
+<ol class="steps">
+<li><b>Machine A.</b> Groupe 2 « Optique de la lumière » : cliquer sur « 34 µm · Fresnel (hypothèse) ». Régler « Distance pixel → plan de polymérisation » à <b>0,35 mm</b> et « Divergence de la lumière » à <b>4,7°</b> (angle du centre dans le modèle, qui monte à 7,5° sur un côté).</li>
+<li>Groupe 5 « Calibration et correction des images » : régler « Variation du flou (bords vs centre) » à <b>60 %</b>.</li>
+<li>Onglet <b>Pixel A/B</b> : cliquer « Réglages principaux dans A et B ». Choisir la zone éclairée « Bloc de 3 × 3 pixels ». Dans le réglage <b>B</b>, mettre la distance à <b>0,7 mm</b>. Laisser tout le reste identique.</li>
+<li>Mettre la tolérance à <b>100 µm</b> (curseur « Tolérance ± » en haut des résultats).</li>
+<li>Lire : le tableau compare A et B (rayon du cône, flou de bord, largeur durcie), et la ligne « Surface dans ±100 µm » donne la part de la pièce dans la tolérance.</li>
+</ol>
+<div class="tw"><table>
+<tr><th>Lecture dans le simulateur</th><th>A (0,35 mm)</th><th>B (0,7 mm)</th></tr>
+<tr><td>Rayon du cône</td><td>29 µm</td><td>58 µm</td></tr>
+<tr><td>Flou de bord (10–90 %)</td><td>52 µm</td><td>88 µm</td></tr>
+<tr><td>Surface dans ±100 µm (motif dentaire)</td><td>100 %</td><td>94 à 98 % (selon 4,6 ou 4,7°)</td></tr>
+</table></div>
+<p>La machine B perd une part de la surface dans la tolérance, comme dans vos mesures. Le rayon du cône double exactement (29 → 58 µm) ; le flou de bord augmente moins (×1,7) parce que la diffusion dans la résine ne double pas.</p>
+<h3>Autres outils utiles du simulateur</h3>
+<ul class="tight">
+  <li><b>Impact de la collimation</b> (groupe 2) : la courbe du flou de bord en fonction de la divergence pour plusieurs distances. Le bouton « Ajouter l'écart de contour de la pièce » ajoute l'erreur de la pièce. Le tableau compare des grilles de collimation de 1 à 20° et leur coût en temps d'exposition.</li>
+  <li><b>Lentille de Fresnel : tolérances de positionnement</b> (groupe 2) : donne la divergence due à la taille de source (2,3° pour une source de 20 mm et une focale de 250 mm) et les décalages dus à la défocalisation, au décentrage et au gauchissement. Changer la distance de 0,35 à 0,7 mm double tous les décalages.</li>
+  <li><b>Préréglages ajustables</b> : charger un préréglage, modifier les curseurs, puis « Enregistrer le réglage actuel comme préréglage ». Dans Pixel A/B, un menu par côté charge un préréglage dans A ou B.</li>
+</ul>
+</section>
+
+<section id="agir">
+<h2>Pour tenir 50 µm à 0,7 mm</h2>
+<p>Il faut réduire de moitié l'angle de bord (de 8° à 4°), ou réduire la part de l'erreur qui vient de l'inclinaison. Les leviers :</p>
+<div class="tw"><table>
+<tr><th>Levier</th><th>Effet attendu</th><th>Coût ou limite</th></tr>
+<tr><td>Réduire la distance d</td><td>Erreur proportionnelle : 0,7 → 0,35 mm divise l'erreur par 2</td><td>Dépend de la mécanique (verre, film, FEP)</td></tr>
+<tr><td>Source plus petite ou focale plus longue</td><td>Le cône de base vaut atan((s/2)/f) : le diviser par 2 divise cet angle par 2</td><td>Changement de matériel</td></tr>
+<tr><td>Grille ou film de collimation</td><td>Coupe les grands angles, surtout aux bords. À 4°, le tableau du simulateur donne un temps d'exposition ×1,6</td><td>Perte de lumière ; efficace surtout sur les coins</td></tr>
+<tr><td>Meilleur alignement de la LED et de la lentille</td><td>Réduit la part « inclinaison » et la dispersion entre exemplaires</td><td>Seulement utile si E1 montre un décalage</td></tr>
+<tr><td>Correction logicielle d'échelle et de décalage par machine</td><td>Supprime la part « position » mesurée en E5</td><td>Ne corrige pas le flou</td></tr>
+<tr><td>Compensation d'image (apprentissage)</td><td>Récupère une partie du flou (voir le groupe 5 du simulateur)</td><td>Modèle de gain, non confirmé par une impression réelle</td></tr>
+</table></div>
+</section>
+
+<section id="limites">
+<h2>Limites de cette note</h2>
+<ul class="tight">
+  <li>Les formules sont des approximations d'optique géométrique au premier ordre. Les valeurs de focale (250 mm), de taille de source (20 mm) et de rayon (125 mm) sont des exemples, pas des données constructeur.</li>
+  <li>Les figures 1 à 2 et 5 sont des schémas aux angles et aux échelles exagérés. Les figures 3, 4 et 6 viennent du modèle, pas de mesures.</li>
+  <li>L'interprétation de vos chiffres (96 %, « précision sur toute la surface ») est la nôtre et reste à confirmer.</li>
+  <li>Une inclinaison de 3° demande des défauts mécaniques très importants (section « Causes ») : l'hypothèse H2 seule est peu probable.</li>
+  <li>Aucun essai de ce document n'a été fait sur vos machines.</li>
+</ul>
+</section>
+<footer>
+  <p>Documents liés : <a href="../bancs-mesure/" target="_blank" rel="noopener">procédures de mesure</a> · <a href="https://kreuille.github.io/simulation-light/light-engine/simulateur/" target="_blank" rel="noopener">simulateur LCD / DLP</a>.</p>
+</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+var NS='http://www.w3.org/2000/svg',D=Math.PI/180;
+function S(tag,a,txt){var e=document.createElementNS(NS,tag),k;for(k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;return e;}
+function $(id){return document.getElementById(id);}
+function put(id){var g=typeof id==='string'?$(id):id;for(var i=1;i<arguments.length;i++)g.appendChild(arguments[i]);return g;}
+function T(x,y,t,c,an){return S('text',{x:x,y:y,'class':c||'','text-anchor':an||'start'},t);}
+function f1(v,d){return v.toLocaleString('fr-FR',{minimumFractionDigits:d,maximumFractionDigits:d});}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+Array.prototype.forEach.call(document.querySelectorAll('figure > svg'),function(s){var w=document.createElement('div');w.className='fw';s.parentNode.insertBefore(w,s);w.appendChild(s);});
+
+/* ---------- figure 1 : bloc optique en coupe ---------- */
+(function(){
+  var g='f1',i,xs=[262,330,400,470,520,570,640,710,780];
+  put(g,S('rect',{x:245,y:178,width:550,height:284,style:'fill:var(--lcd);opacity:.6'}));
+  put(g,S('rect',{x:230,y:490,width:580,height:26,'class':'metal',rx:3}));
+  for(i=0;i<24;i++)put(g,S('rect',{x:250+i*23,y:462,width:9,height:28,'class':'metal'}));
+  put(g,S('rect',{x:215,y:132,width:30,height:360,'class':'body'}),S('rect',{x:795,y:132,width:30,height:360,'class':'body'}));
+  [160,230,300,370,440].forEach(function(y){put(g,S('circle',{cx:230,cy:y,r:3,style:'fill:var(--m2)'}),S('circle',{cx:810,cy:y,r:3,style:'fill:var(--m2)'}));});
+  /* rayons de la LED vers la lentille */
+  xs.forEach(function(x){put(g,S('line',{x1:520,y1:446,x2:x,y2:178,'class':'ray',style:'opacity:.45'}));});
+  /* lentille de Fresnel : plaque + facettes */
+  put(g,S('rect',{x:230,y:170,width:580,height:8,'class':'glass'}));
+  var d='M235 170';for(i=0;i<56;i++){var x=235+i*10.3;d+=' L'+(x+7.5)+' 163 L'+(x+10.3)+' 170';}
+  put(g,S('path',{d:d,style:'fill:var(--glass);stroke:var(--accent);stroke-width:.8'}));
+  /* rayons après la lentille : presque parallèles */
+  xs.forEach(function(x){var tilt=(x-520)/260*7;put(g,S('line',{x1:x,y1:162,x2:x+tilt,y2:134,'class':'ray'}),S('path',{d:'M'+(x+tilt-3)+' 140 L'+(x+tilt)+' 132 L'+(x+tilt+3)+' 140 Z',style:'fill:var(--uv)'}));});
+  /* écran LCD */
+  put(g,S('rect',{x:225,y:96,width:590,height:4,'class':'glass2'}),S('rect',{x:225,y:100,width:590,height:12,'class':'glass'}),
+    S('rect',{x:225,y:112,width:590,height:4,style:'fill:var(--accent);opacity:.6'}),S('rect',{x:225,y:116,width:590,height:12,'class':'glass'}),S('rect',{x:225,y:128,width:590,height:4,'class':'glass2'}));
+  put(g,S('rect',{x:196,y:112,width:30,height:6,style:'fill:var(--m2)'}));
+  /* film, résine, bac, plateau */
+  put(g,S('rect',{x:245,y:40,width:550,height:52,style:'fill:var(--pix);opacity:.2'}));
+  put(g,S('rect',{x:225,y:40,width:20,height:56,'class':'body'}),S('rect',{x:795,y:40,width:20,height:56,'class':'body'}));
+  put(g,S('rect',{x:245,y:90,width:550,height:5,style:'fill:var(--m1);stroke:var(--m3);stroke-width:.8'}));
+  put(g,S('rect',{x:245,y:26,width:550,height:14,'class':'metal'}));
+  put(g,S('rect',{x:470,y:40,width:90,height:22,style:'fill:var(--accent);opacity:.55'}));
+  /* source */
+  put(g,S('ellipse',{cx:520,cy:446,rx:46,ry:18,style:'fill:var(--uv);opacity:.3'}),S('rect',{x:494,y:442,width:52,height:12,rx:2,style:'fill:var(--pix);stroke:var(--m3)'}));
+  /* zones agrandies (figure 2) */
+  [[520,108,'centre'],[780,108,'bord']].forEach(function(z){put(g,S('circle',{cx:z[0],cy:z[1],r:30,style:'fill:none;stroke:var(--accent);stroke-width:1.6;stroke-dasharray:5 4'}));});
+  put(g,T(520,18,'centre : cône ≈ 2°','t-acc','middle'),T(780,18,'bord, coin : cône ≈ 5° + inclinaison','t-acc','middle'));
+  /* cotes */
+  put(g,S('line',{x1:860,y1:446,x2:860,y2:174,'class':'dim'}),T(870,318,'f','t-h'),T(870,334,'distance','t-sm'),T(870,348,'LED – lentille','t-sm'));
+  put(g,S('line',{x1:815,y1:93,x2:866,y2:93,'class':'lead-l',style:'stroke-dasharray:2 3'}),S('line',{x1:815,y1:114,x2:866,y2:114,'class':'lead-l',style:'stroke-dasharray:2 3'}),
+    S('line',{x1:860,y1:93,x2:860,y2:114,'class':'dim',style:'stroke-width:1.6'}),T(872,100,'d','t-h'),T(872,114,'0,35 mm ou 0,7 mm','t-sm'));
+  /* étiquettes */
+  function lab(y,t1,t2,ex,ey){put(g,T(14,y,t1,'t-b'),T(14,y+14,t2,'t-sm'),S('line',{x1:178,y1:y-4,x2:ex,y2:ey,'class':'lead-l'}));}
+  lab(32,'plateau de fabrication','pièce en cours',245,33);
+  lab(62,'résine','éclairée par chaque pixel',245,64);
+  lab(100,'film FEP','sous la résine',225,92);
+  lab(136,'écran LCD','pixels de 34 µm',225,114);
+  lab(178,'lentille de Fresnel','focale f, facettes',230,174);
+  lab(296,'parois réfléchissantes','chambre optique',215,300);
+  lab(440,'LED COB 405 nm','source de taille s',474,446);
+  lab(494,'dissipateur','ailettes',230,500);
+})();
+
+/* ---------- figure 2 : le même pixel à deux distances ---------- */
+(function(){
+  var g='f2',hs=1.4,vs=200,w=34,cols=[[120,'Centre de l’écran','cône ≈ 2,3°, pas d’inclinaison',2.3,0],[520,'Bord, coin de l’écran','cône ≈ 5°, inclinaison ≈ 3°',5,3]];
+  var rows=[[0.35,170,'Machine A','d = 0,35 mm'],[0.7,430,'Machine B','d = 0,7 mm']];
+  cols.forEach(function(c){put(g,T(c[0]+190,22,c[1],'t-h','middle'),T(c[0]+190,38,c[2],'t-sm','middle'));});
+  rows.forEach(function(r){
+    var gap=r[0],base=r[1],top=base-gap*vs;
+    put(g,T(8,base-gap*vs/2,r[2],'t-b'),T(8,base-gap*vs/2+14,r[3],'t-sm'));
+    cols.forEach(function(c){
+      var cx=c[0]+190,th=c[3]*D,tau=c[4]*D,R=gap*1000*Math.tan(th),sh=gap*1000*Math.tan(tau),half=w/2;
+      var xl=cx+(-half-R+sh)*hs,xr=cx+(half+R+sh)*hs,px=cx+half*hs;
+      put(g,S('rect',{x:c[0],y:top-26,width:380,height:base-top+66,rx:8,style:'fill:var(--bg);opacity:.6;stroke:var(--line)'}));
+      put(g,S('path',{d:'M'+(cx-half*hs)+' '+base+' L'+xl+' '+top+' L'+xr+' '+top+' L'+px+' '+base+' Z','class':'beam'}));
+      put(g,S('line',{x1:cx,y1:base,x2:cx+sh*hs,y2:top,style:'stroke:var(--uv);stroke-width:1.2;stroke-dasharray:4 3'}));
+      put(g,S('rect',{x:cx-half*hs,y:base,width:w*hs,height:7,'class':'pix',style:'stroke:var(--m3);stroke-width:.8'}));
+      put(g,S('rect',{x:xl,y:top-4,width:xr-xl,height:5,style:'fill:var(--uv)'}));
+      put(g,S('line',{x1:cx-half*hs,y1:top-12,x2:cx-half*hs,y2:top+4,style:'stroke:var(--muted);stroke-dasharray:2 2'}),S('line',{x1:cx+half*hs,y1:top-12,x2:cx+half*hs,y2:top+4,style:'stroke:var(--muted);stroke-dasharray:2 2'}));
+      put(g,T(cx,top-16,'emprise ≈ '+Math.round(w+2*R)+' µm','t-sm','middle'));
+      if(tau>0){
+        put(g,T(cx,base+22,'pire écart par rapport au pixel : '+Math.round(R+sh)+' µm','t-acc','middle'),T(cx,base+38,'(cône '+Math.round(R)+' µm + décalage '+Math.round(sh)+' µm)','t-sm','middle'));
+      }else{
+        put(g,T(cx,base+22,'écart par rapport au pixel : '+Math.round(R)+' µm','t-acc','middle'),T(cx,base+38,'(cône seul)','t-sm','middle'));
+      }
+    });
+  });
+  put(g,T(460,510,'plan de la résine en haut de chaque cadre, plan des pixels en bas ; échelle horizontale agrandie','t-sm','middle'));
+})();
+
+/* ---------- figure 3 : erreur en fonction de la distance ---------- */
+(function(){
+  var g='f3',L=70,Rr=800,Tp=30,B=360,gm=1.0,em=160;
+  function X(v){return L+v/gm*(Rr-L);}
+  function Y(v){return B-v/em*(B-Tp);}
+  var i;
+  for(i=0;i<=4;i++){var v=em*i/4;put(g,S('line',{x1:L,y1:Y(v),x2:Rr,y2:Y(v),'class':'ln-m',style:'opacity:.5'}),T(L-8,Y(v)+4,String(v),'t-sm','end'));}
+  for(i=0;i<=5;i++){var d=i*0.2;put(g,S('line',{x1:X(d),y1:B,x2:X(d),y2:B+5,'class':'ln-m'}),T(X(d),B+20,f1(d,1),'t-sm','middle'));}
+  put(g,T((L+Rr)/2,B+42,'distance pixels → résine (mm)','t-sm','middle'),T(L,Tp-12,'erreur (µm)','t-sm'));
+  [[2,0],[4,0],[5,0],[6,0],[8.1,1]].forEach(function(a){
+    var t=Math.tan(a[0]*D)*1000,hi=a[1];
+    put(g,S('line',{x1:X(0),y1:Y(0),x2:X(1),y2:Y(t),style:'stroke:'+(hi?'var(--accent)':'var(--muted)')+';stroke-width:'+(hi?2.8:1.4)+';opacity:'+(hi?1:.7)}));
+    put(g,T(Rr+8,Y(t)+4,f1(a[0],1)+'°',hi?'t-acc':'t-sm'));
+  });
+  [[0.35,50,'A'],[0.7,100,'B']].forEach(function(p){
+    put(g,S('line',{x1:X(p[0]),y1:B,x2:X(p[0]),y2:Y(p[1]),style:'stroke:var(--warn);stroke-dasharray:4 3;stroke-width:1'}),S('circle',{cx:X(p[0]),cy:Y(p[1]),r:6,style:'fill:var(--warn)'}),
+      T(X(p[0])+10,Y(p[1])-8,'machine '+p[2]+' : '+p[1]+' µm à '+f1(p[0],2)+' mm','t-warn'));
+  });
+  put(g,T(X(0.58),Y(Math.tan(2*D)*580)+20,'centre de l’écran (≈ 2°)','t-sm'));
+})();
+
+/* ---------- figure 4 : cartes d'erreur ---------- */
+(function(){
+  var NX=160,NY=90,thc=2.3,tolDeg=Math.atan(100/700)/D;
+  function rho(i,j){var x=(i+0.5)/NX*2-1,y=(j+0.5)/NY*2-1;return Math.sqrt(x*x+y*y)/Math.SQRT2;}
+  function share(thm){var n=0,i,j;for(j=0;j<NY;j++)for(i=0;i<NX;i++){var r=rho(i,j),t=thc+(thm-thc)*r*r;if(t>tolDeg)n++;}return n/(NX*NY);}
+  var lo=tolDeg+0.05,hi=40,k,thm;
+  for(k=0;k<40;k++){thm=(lo+hi)/2;if(share(thm)>0.04)hi=thm;else lo=thm;}
+  thm=(lo+hi)/2;
+  function ramp(e){
+    var s=[[0,[45,106,159]],[50,[63,160,170]],[100,[242,193,78]],[140,[200,67,75]]],i;
+    e=Math.max(0,Math.min(140,e));
+    for(i=0;i<s.length-1;i++)if(e<=s[i+1][0]){var f=(e-s[i][0])/(s[i+1][0]-s[i][0]),a=s[i][1],b=s[i+1][1];return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f];}
+    return s[3][1];
+  }
+  function draw(id,gap,tol,cap,name){
+    var cv=$(id),ctx=cv.getContext('2d'),W=cv.width,H=cv.height,img=ctx.createImageData(W,H),x,y,out=0,tot=0;
+    for(y=0;y<H;y++)for(x=0;x<W;x++){
+      var i=Math.floor(x/W*NX),j=Math.floor(y/H*NY),r=rho(i,j),t=(thc+(thm-thc)*r*r)*D,e=gap*1000*Math.tan(t),c=ramp(e),p=(y*W+x)*4,bad=e>tol;
+      tot++;if(bad)out++;
+      if(bad&&((x+y)%8<2)){c=[255,255,255];}
+      img.data[p]=c[0];img.data[p+1]=c[1];img.data[p+2]=c[2];img.data[p+3]=255;
+    }
+    ctx.putImageData(img,0,0);
+    $(cap).innerHTML='<b>'+name+'</b> · d = '+f1(gap,2)+' mm<br>erreur de '+Math.round(gap*1000*Math.tan(thc*D))+' µm au centre à '+Math.round(gap*1000*Math.tan(thm*D))+' µm dans les coins · <b>'+Math.round(100*(1-out/tot))+' % dans ±'+tol+' µm</b>';
+  }
+  draw('mapA',0.35,50,'capA','Machine A');
+  draw('mapB',0.7,100,'capB','Machine B');
+  var leg=$('mapleg');
+  var cv=document.createElement('canvas');cv.width=300;cv.height=14;var c2=cv.getContext('2d'),im=c2.createImageData(300,14),x,y;
+  for(x=0;x<300;x++){var c=ramp(x/300*140);for(y=0;y<14;y++){var p=(y*300+x)*4;im.data[p]=c[0];im.data[p+1]=c[1];im.data[p+2]=c[2];im.data[p+3]=255;}}
+  c2.putImageData(im,0,0);cv.style.cssText='width:300px;max-width:100%;border-radius:4px;vertical-align:middle';
+  leg.appendChild(cv);
+  var sp=document.createElement('span');sp.textContent=' 0 → 140 µm (erreur) · hachures blanches : hors tolérance';sp.style.cssText='font-size:12px;color:var(--muted);margin-left:8px';leg.appendChild(sp);
+  leg.style.cssText='margin-top:8px';
+})();
+
+/* ---------- figure 5 : trois défauts ---------- */
+(function(){
+  var g='f5',xsr=[50,100,150,200,250];
+  function panel(xo,title,form,mode){
+    var cx=xo+150,ly=120,focus=250,ledx=cx,ledy=focus;
+    if(mode==='def')ledy=282;
+    if(mode==='dec')ledx=cx+34;
+    put(g,S('rect',{x:xo,y:20,width:300,height:272,rx:8,style:'fill:var(--bg);opacity:.5;stroke:var(--line)'}));
+    put(g,S('line',{x1:cx,y1:34,x2:cx,y2:ledy,style:'stroke:var(--muted);stroke-dasharray:3 4'}));
+    if(mode==='def')put(g,S('line',{x1:xo+16,y1:focus,x2:xo+284,y2:focus,style:'stroke:var(--accent);stroke-dasharray:6 4;stroke-width:1.2'}),T(xo+20,focus-6,'foyer','t-sm'));
+    if(mode==='bow'){put(g,S('path',{d:'M'+(xo+20)+' 132 Q'+cx+' 96 '+(xo+280)+' 132',style:'fill:none;stroke:var(--accent);stroke-width:7;stroke-linecap:round;opacity:.55'}));}
+    else put(g,S('rect',{x:xo+20,y:ly-4,width:260,height:8,'class':'glass'}));
+    xsr.forEach(function(r,i){
+      var x=xo+r,off=x-cx,ly2=(mode==='bow')?(132-(1-Math.pow((x-cx)/130,2))*(132-100)*0.5-8):ly;
+      put(g,S('line',{x1:ledx,y1:ledy-8,x2:x,y2:ly2+3,'class':'ray',style:'opacity:.4'}));
+      var dx=0;
+      if(mode==='def')dx=-off*0.26;
+      else if(mode==='dec')dx=-34*0.9;
+      else dx=[-26,-12,0,12,26][i]*0.7;
+      put(g,S('line',{x1:x,y1:ly2-2,x2:x+dx,y2:48,'class':'ray'}),S('path',{d:'M'+(x+dx-3)+' 56 L'+(x+dx)+' 46 L'+(x+dx+3)+' 56 Z',style:'fill:var(--uv)'}));
+    });
+    put(g,S('rect',{x:ledx-14,y:ledy-6,width:28,height:10,rx:2,style:'fill:var(--pix);stroke:var(--m3)'}),S('ellipse',{cx:ledx,cy:ledy-2,rx:26,ry:11,style:'fill:var(--uv);opacity:.3'}));
+    put(g,T(xo+150,14,title,'t-h','middle'),T(xo+150,312,form,'t-sm','middle'));
+  }
+  panel(20,'Défocalisation','inclinaison au bord ≈ rayon × δz / f²','def');
+  panel(330,'Décentrage de la LED','inclinaison ≈ δx / f (uniforme)','dec');
+  panel(640,'Gauchissement de la lentille','inclinaison ≈ (n − 1) × pente locale','bow');
+})();
+
+/* ---------- figure 6 : écarts entre exemplaires ---------- */
+(function(){
+  var g='f6',L=70,Rr=840,Tp=30,B=320,em=55;
+  function Y(v){return B-v/em*(B-Tp);}
+  var i,tilts=[1,2,3,4];
+  for(i=0;i<=5;i++){var v=11*i;put(g,S('line',{x1:L,y1:Y(v),x2:Rr,y2:Y(v),'class':'ln-m',style:'opacity:.5'}),T(L-8,Y(v)+4,String(v),'t-sm','end'));}
+  put(g,T(L,Tp-12,'décalage de l’image du pixel (µm)','t-sm'));
+  tilts.forEach(function(t,k){
+    var x0=L+30+k*185;
+    [[0.35,'var(--accent)',.5],[0.7,'var(--accent)',1]].forEach(function(p,j){
+      var v=p[0]*1000*Math.tan(t*D),x=x0+j*70;
+      put(g,S('rect',{x:x,y:Y(v),width:56,height:B-Y(v),rx:3,style:'fill:'+p[1]+';opacity:'+p[2]}),T(x+28,Y(v)-6,f1(v,1),'t-b','middle'),T(x+28,B+16,f1(p[0],2)+' mm','t-sm','middle'));
+    });
+    put(g,T(x0+63,B+36,'inclinaison '+t+'°','t-h','middle'));
+  });
+  put(g,T(Rr,Tp-12,'deux exemplaires à 2° et 3° : écart de 6 µm à 0,35 mm, de 12 µm à 0,7 mm','t-acc','end'));
+})();
+
+/* ---------- figure 7 : champ complet et points de mesure ---------- */
+(function(){
+  var g='f7',sx=40,sy=30,sw=533,sh=300,k=sw/261,i,j,step=24*k,x0=sx+(sw-10*step)/2,y0=sy+(sh-5*step)/2;
+  put(g,S('rect',{x:sx,y:sy,width:sw,height:sh,rx:6,style:'fill:var(--lcd);stroke:var(--m3);stroke-width:2'}));
+  for(j=0;j<6;j++)for(i=0;i<11;i++)put(g,S('circle',{cx:x0+i*step,cy:y0+j*step,r:5*k,style:'fill:none;stroke:var(--pix);stroke-width:'+(2*k)}));
+  var cx=sx+sw/2,cy=sy+sh/2;
+  [[cx,cy,'1'],[sx+sw-34,cy,'2'],[sx+sw-34,sy+sh-34,'3']].forEach(function(p){
+    put(g,S('circle',{cx:p[0],cy:p[1],r:26,style:'fill:none;stroke:var(--accent);stroke-width:2.4;stroke-dasharray:5 4'}),S('circle',{cx:p[0]+30,cy:p[1]-30,r:11,style:'fill:var(--accent)'}),T(p[0]+30,p[1]-26,p[2],'t-h','middle'));
+    $(g).lastChild.setAttribute('style','fill:var(--surface)');
+  });
+  put(g,T(sx+sw/2,sy+sh+22,'écran vu de dessus (261 × 147 mm pour 7680 × 4320 pixels à 34 µm)','t-sm','middle'));
+  var lx=620,ly=60;
+  put(g,T(lx,ly,'Positions de mesure de l’angle (essai E2)','t-h'),T(lx,ly+26,'1  centre de l’écran','t-b'),T(lx,ly+48,'2  milieu d’un bord','t-b'),T(lx,ly+70,'3  coin','t-b'));
+  put(g,T(lx,ly+112,'Anneaux du motif de champ complet','t-h'),T(lx,ly+136,'11 colonnes × 6 lignes, tous les 24 mm','t-sm'),T(lx,ly+152,'diamètre extérieur 10 mm, intérieur 6 mm','t-sm'),T(lx,ly+168,'à mesurer : diamètre et position de chaque anneau','t-sm'));
+})();
+})();
+
+</script>
