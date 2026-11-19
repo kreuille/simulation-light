@@ -237,6 +237,9 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
   .m3d-evts{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
   .m3d-evts button{font:500 12px/1 var(--mono,ui-monospace,monospace);padding:5px 9px;border-radius:7px;border:1px solid var(--line,#d3d8e4);background:var(--card,#fff);color:inherit;cursor:pointer}
   .m3d-evts button.warn{border-color:#ff9f0a;color:#d2740a}
+  .m3d-resin{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:9px;font:500 12.5px/1.45 var(--mono,ui-monospace,monospace)}
+  .m3d-resin .m3d-rk{color:var(--muted,#64748b)}
+  .m3d-resin .m3d-rk b{color:var(--ink,inherit);font-weight:600}
   .m3d-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:26px;color:#aeb9d2;font-weight:500}
   @media(max-width:640px){#m3dstage{height:330px}.m3d-hud{font-size:11px}.m3d-sens{min-width:150px;grid-template-columns:auto 44px auto}}
   </style>
@@ -273,6 +276,13 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
         <input id="m3dlayer" type="range" min="0" max="59" step="1" value="0" style="flex:1;min-width:160px" aria-label="Couche à visualiser">
       </div>
       <div class="m3d-evts" id="m3devts"></div>
+      <div class="m3d-ctl" style="gap:14px">
+        <label><span id="m3drhlbl">Hauteur de résine</span> <output id="m3drho"></output></label>
+        <input id="m3drh" type="range" min="3" max="40" step="0.5" value="8" style="flex:1;min-width:110px" aria-label="Hauteur de résine">
+        <label><span id="m3drllbl">Fuite</span> <output id="m3drlo"></output></label>
+        <input id="m3drl" type="range" min="0" max="60" step="1" value="0" style="flex:1;min-width:90px" aria-label="Fuite pendant l'impression">
+      </div>
+      <div id="m3dresin" class="m3d-resin"></div>
       <p class="note" id="m3dhelp"></p>
     </div>
   </section>
@@ -1043,6 +1053,16 @@ Object.assign(I18N,{
 "Surface de la pièce au contact de la résine":["Part surface touching the resin","打印件表面接触树脂"],
 "Pièce immergée dans la résine":["Part immersed in the resin","打印件浸入树脂"],
 "Pièce émergée de la résine":["Part out of the resin","打印件露出树脂"],
+"Hauteur de résine":["Resin height","树脂高度"],
+"Volume":["Volume","体积"],
+"Poids":["Weight","重量"],
+"Niveau":["Level","液位"],
+"Consommation":["Consumption","消耗"],
+"Consommé":["Consumed","已消耗"],
+"ml/couche":["ml/layer","ml/层"],
+"Fuite détectée : ~{r} ml/h":["Leak detected: ~{r} ml/h","检测到泄漏：约 {r} ml/h"],
+"Fuite sous le seuil de détection":["Leak below detection threshold","泄漏低于检测阈值"],
+"Aucune fuite":["No leak","无泄漏"],
 "carte mère : STOP couche {l} ({k})":["motherboard: STOP layer {l} ({k})","主板：STOP 第 {l} 层（{k}）"],
 "Three.js n'a pas pu être chargé : la vue 3D est indisponible, le reste du simulateur fonctionne.":["Three.js could not be loaded: the 3D view is unavailable, the rest of the simulator works.","无法加载 Three.js：3D 视图不可用，模拟器的其余部分正常工作。"]
 });
@@ -1555,6 +1575,7 @@ function initM3D(){
   function sgVal(t){const r=interp(STATE.s.sg,t);return(r.v==null||r.gap>0.15)?null:r.v;}
   function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
   function setTxt(id,t){const e=$(id);if(e)e.textContent=t;}
+  function rk(k,v){return '<span class="m3d-rk">'+k+' : <b>'+v+'</b></span>';}
 
   // ---- scène Three.js ----
   let renderer,scene,camera,screenMesh,lcdMesh,platform,arm,pillar,uvLight,partGroup,vatGrp,boxGeo,cylGeo,fep,resin,resinSurf;
@@ -1633,9 +1654,20 @@ function initM3D(){
     em.emissiveIntensity+=(on*1.0-em.emissiveIntensity)*0.25;
     uvLight.intensity+=(on*1.3-uvLight.intensity)*0.25;
     const pp=M.parts[ly],ax=pp?pp.ax:0.3,bz=pp?pp.bz:0.3;
-    // Résine : niveau FIXE dans le bac. La pièce se construit par le bas (immergée) et son sommet
-    // émerge peu à peu quand elle grandit ; le plateau plonge / émerge à chaque cycle.
-    const restTop=(ly+1)*M.VLH,resinY=0.14;
+    // Modèle résine : la HAUTEUR est un paramètre -> volume et poids ; chaque couche consomme un volume
+    // (surface exposée × épaisseur), donc le niveau baisse ; une fuite le fait baisser plus vite et est
+    // détectée en comparant la perte mesurée à la consommation attendue. Niveau fixe dans un cycle.
+    const restTop=(ly+1)*M.VLH;
+    const vA=STATE.p.machine.vatW*STATE.p.machine.vatH;          // surface du bac (mm²)
+    const h0=+((($('m3drh')||{}).value)||8);                     // hauteur de résine initiale (mm) = paramètre
+    const initVol=vA*h0/1000;                                    // volume initial (ml)
+    let consumed=0;for(let i=0;i<=ly;i++)consumed+=(STATE.sim.truth.area[i]||0)*STATE.p.proc.layerH/10;
+    const leakRate=+((($('m3drl')||{}).value)||0);               // fuite (ml/h)
+    const leaked=leakRate*M.tcur/3600;
+    const vol=Math.max(0,initVol-consumed-leaked),levelMm=vA>0?vol*1000/vA:0;
+    const thr=Math.max(1,8*(STATE.p.machine.sensRes||0.03));     // seuil de détection (ml) ~ bruit des 4 cellules
+    M.resin={initVol,vol,weight:vol*RHO,consumed,consLayer:(STATE.sim.truth.area[ly]||0)*STATE.p.proc.layerH/10,levelMm,h0,leakRate,leaked,leakDet:leakRate>0&&leaked>thr};
+    const resinY=Math.max(0.03,Math.min(0.42,levelMm*0.016));    // niveau mm -> unités scène
     const vwR=STATE.p.machine.vatW*M.SC*0.98,vhR=STATE.p.machine.vatH*M.SC*0.98;
     resin.scale.set(vwR,resinY+0.02,vhR);resin.position.set(0,(resinY-0.02)/2,0);
     resinSurf.scale.set(vwR,vhR,1);resinSurf.position.set(0,resinY,0);
@@ -1707,6 +1739,13 @@ function initM3D(){
     if(M.primary&&ly>=M.primary.layer){al.style.display='block';al.textContent='→ '+T('carte mère : STOP couche {l} ({k})',{l:M.primary.layer+1,k:T(FLAGLAB[M.primary.kind]||M.primary.kind)});}
     else al.style.display='none';
     setTxt('m3dclock',fmt(M.tcur,1)+' / '+fmt(M.totalT,1)+' s');
+    const R=M.resin;
+    if(R&&$('m3dresin')){
+      const leak=R.leakDet?'<b style="color:#ff6b6b">'+T('Fuite détectée : ~{r} ml/h',{r:fmt(R.leakRate,0)})+'</b>':(R.leakRate>0?T('Fuite sous le seuil de détection'):T('Aucune fuite'));
+      $('m3dresin').innerHTML=rk(T('Volume'),fmt(R.vol,0)+' ml')+rk(T('Poids'),fmt(R.weight,0)+' g')+rk(T('Niveau'),fmt(R.levelMm,1)+' mm')+
+        rk(T('Consommation'),fmt(R.consLayer,2)+' '+T('ml/couche'))+rk(T('Consommé'),fmt(R.consumed,1)+' ml')+
+        '<span class="m3d-rk" style="flex:1 1 100%">'+T('Fuite')+' : '+leak+'</span>';
+    }
     drawLCD(ph,ly);
     drawScope();
   }
@@ -1795,6 +1834,9 @@ function initM3D(){
     setTxt('m3dlcdcap',T('Écran LCD simulé'));
     setTxt('m3dspeedlbl',T('Vitesse'));
     const sc=$('m3dscale');if(sc){sc.textContent=T(M.scaleFixed?'Échelle fixe':'Échelle auto');sc.classList.toggle('on',M.scaleFixed);}
+    setTxt('m3drhlbl',T('Hauteur de résine'));setTxt('m3drllbl',T('Fuite'));
+    const rh=$('m3drh');if(rh)setTxt('m3drho',rh.value+' mm');
+    const rl=$('m3drl');if(rl)setTxt('m3drlo',(+rl.value===0?T('aucune'):rl.value+' ml/h'));
     const seg=$('m3dspeed');
     if(seg&&!M.speedBuilt){M.speedBuilt=true;seg.innerHTML='';for(const sp of SPEEDS){const b=document.createElement('button');b.textContent=sp[0]==='×Max'?T('×Max'):sp[0];b.dataset.v=sp[1];b.onclick=()=>{M.speed=(sp[1]==='max')?'max':+sp[1];M.lastRAF=0;markSpeed();};seg.appendChild(b);}markSpeed();}
     else if(seg){Array.prototype.forEach.call(seg.children,(b,i)=>{b.textContent=SPEEDS[i][0]==='×Max'?T('×Max'):SPEEDS[i][0];});}
@@ -1807,6 +1849,8 @@ function initM3D(){
     const pb=$('m3dplay');if(pb)pb.onclick=()=>{M.playing=!M.playing;M.lastRAF=0;upPlay();};
     const sf=$('m3dstepf'),sb=$('m3dstepb');if(sf)sf.onclick=()=>stepPhase(1);if(sb)sb.onclick=()=>stepPhase(-1);
     const sc=$('m3dscale');if(sc)sc.onclick=()=>{M.scaleFixed=!M.scaleFixed;labels();};
+    const rh=$('m3drh');if(rh)rh.oninput=()=>setTxt('m3drho',rh.value+' mm');
+    const rl=$('m3drl');if(rl)rl.oninput=()=>setTxt('m3drlo',(+rl.value===0?T('aucune'):rl.value+' ml/h'));
     const tl=$('m3dtime');if(tl)tl.oninput=e=>{M.playing=false;upPlay();M.tcur=M.totalT*(+e.target.value/1000);};
     const ll=$('m3dlayer');if(ll)ll.oninput=e=>{M.playing=false;upPlay();const l=Math.max(0,Math.min(M.nl-1,+e.target.value));M.tcur=STATE.sim.T[STATE.sim.truth.start[l]]||0;};
     if(hasT&&cv){
