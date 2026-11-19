@@ -36,9 +36,17 @@ Pour voir l'effet d'un changement matériel, par exemple deux machines avec le m
 
 Le verre ajouté est aussi réglable dans le groupe 2 (épaisseur, indice, diffusion), à 0 par défaut.
 
-### Machines du marché et impact de la collimation
+### Machines à lentille de Fresnel et impact de la collimation
 
-Le groupe 2 propose trois machines à lumière collimatée (Elegoo Saturn 4 Ultra 12K, Phrozen Sonic Mighty 8K, Anycubic Photon Mono M5s 12K) et des pas d'écran courants. Pour chaque machine, la note affiche **ce qui est publié** (pas, résolution, uniformité annoncée, angle annoncé pour l'Elegoo : moins de 5°) et **ce qui est estimé** (distance écran → résine, divergence quand elle n'est pas publiée). Les constructeurs ne publient pas la distance ni la divergence : ces valeurs sont des estimations à remplacer par vos mesures. Sources : fiches et revues citées par les pages produit des constructeurs, non vérifiées sur les fiches officielles.
+Le groupe 2 propose trois préréglages de machines à lumière collimatée par lentille de Fresnel et des pas d'écran courants. Pour chacun, la note sépare **ce qui est publié ou mesuré par un tiers** de **ce qui est estimé** :
+
+| Préréglage | Publié ou mesuré | Estimé |
+|---|---|---|
+| Elegoo Saturn 2 8K (Fresnel) | pas 28,5 µm ; lentille de Fresnel devant le LCD ; cône mesuré par un tiers : 2° au centre, jusqu'à 4° sur les côtés (modélisé par une divergence de 2° et une variation du flou de 60 %) | 405 nm, uniformité, distance écran → résine (0,35 mm) |
+| Elegoo Saturn 4 Ultra 12K (Fresnel) | pas 19 × 24 µm (21 µm dans le modèle) ; 405 nm ; uniformité 92 % et angle inférieur à 5° annoncés par le constructeur | distance écran → résine (0,35 mm) |
+| 34 µm · Fresnel (hypothèse) | rien : les sources trouvées ne documentent aucune machine à 34 µm avec lentille de Fresnel (Anycubic Photon Mono 2 : 34 µm ; Photon Mono X 6K : 34,4 µm, sans lentille de Fresnel confirmée) | tout : le cône de 2° est repris de la mesure de la Saturn 2 |
+
+Les constructeurs ne publient ni la distance écran → résine ni la divergence : ces valeurs sont à remplacer par vos mesures (voir les procédures de mesure). Les machines Phrozen et Anycubic M5s ont été retirées des préréglages, faute de confirmation d'une lentille de Fresnel. Sources : mesure du cône de la Saturn 2 par un tiers ([blog de Honza Mrazek](https://blog.honzamrazek.cz/2022/12/about-the-successful-quest-for-perfect-msla-printer-uv-backlight/)), fiches et revues des machines Elegoo, non vérifiées sur les fiches officielles.
 
 Le graphique « Impact de la collimation » trace le flou de bord en fonction de la divergence pour plusieurs distances ; le bouton « Ajouter l'écart de contour de la pièce » ajoute l'erreur de contour du modèle dentaire pour chaque divergence. Le tableau compare des grilles de collimation de 1° à 20° : rayon du cône, flou de bord et temps d'exposition relatif (une grille plus fermée réduit le flou mais coûte de la lumière).
 
