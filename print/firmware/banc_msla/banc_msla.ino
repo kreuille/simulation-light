@@ -1,81 +1,82 @@
 /*
-  Banc de mesure MSLA — firmware ESP32
-  ------------------------------------
-  Mesure en continu :
-    - la force sur le bras Z (cellule de charge 0) et, en option, sous les 4 coins du bac (cellules 1 à 4),
-      avec des HX711 lus en parallèle (horloge SCK commune) ;
-    - la position Z, en comptant les impulsions STEP/DIR du driver du moteur Z ;
-    - l'état de l'UV, avec un capteur UV (GUVA-S12SD ou photodiode) placé près de l'écran.
-  Envoie une ligne CSV par mesure sur le port USB (921600 bauds), lisible par outils/logger.py
-  et par le simulateur (section « Données réelles et recalage »).
+  MSLA force bench — ESP32 firmware
+  ---------------------------------
+  Measures, continuously:
+    - the force on the Z arm (load cell 0) and, as an option, below the 4 vat corners
+      (cells 1 to 4), with HX711 modules read in parallel (common SCK clock);
+    - the Z position, by counting the STEP/DIR pulses of the Z motor driver;
+    - the UV state, with a UV sensor (GUVA-S12SD or photodiode) near the screen.
+  Sends one CSV line per sample on the USB port (921600 baud), read by outils/logger.py
+  and by the simulator (section "Real data and fit").
 
   Format :  t_s,fz_N,c0_N,c1_N,c2_N,c3_N,z_mm,uv,uv_raw
-  Convention de signe : + = traction sur le film (arrachement), - = compression (descente).
+  Sign convention: + = pull on the film (peel), - = compression (descent).
 
-  Carte : ESP32 DevKit (ESP32-WROOM-32). Arduino IDE 2.x, paquet « esp32 » d'Espressif (2.x ou 3.x).
-  Aucune bibliothèque externe.
+  Board: ESP32 DevKit (ESP32-WROOM-32). Arduino IDE 2.x, Espressif "esp32" package (2.x or 3.x).
+  No external library.
 
-  Contrôle du bac avant impression (sans PC) :
-    « ref »       : enregistre la référence pendant le prochain test, bac PROPRE ;
-    « controle »  : analyse le prochain test et donne un verdict (LED + ligne « # CONTROLE … »).
-  Le test = un fichier d'impression d'une couche noire (aucun durcissement) avec descente lente
-  et attente avant exposition de 5 s : voir le README, section « Contrôle du bac ».
+  Vat control before a print (no PC):
+    "ref"       : records the reference during the next test, CLEAN vat;
+    "controle"  : analyzes the next test and gives a verdict (LED + line "# CONTROLE ...").
+  The test = a print file of one black layer (no cure) with a slow descent and a 5 s wait
+  before exposure: see the README, section "Vat control".
+  Note: the serial messages below are in French, for the (French-speaking) operator.
 
-  Commandes (terminal série, fin de ligne LF) : tapez « aide ».
+  Commands (serial terminal, line end LF): type "aide".
 */
 #include <Arduino.h>
 #include <Preferences.h>
 #include "soc/gpio_reg.h"
-// Logique de détection partagée avec le simulateur et les tests (dossier src/ compilé
-// automatiquement par l'IDE Arduino ; lien vers ../../lib/msla_detect).
+// Detection logic shared with the simulator and the tests (src/ folder compiled
+// automatically by the Arduino IDE; link to ../../lib/msla_detect).
 #include "src/msla_detect/msla_detect.h"
 
 
-// ------------------------- Câblage (à adapter) -------------------------
-const int PIN_HX_SCK = 18;                          // SCK commun à tous les HX711
-const int PIN_HX_DOUT[5] = {19, 21, 22, 23, 25};    // 0 = bras Z, 1..4 = coins du bac (avant-gauche, avant-droit, arrière-droit, arrière-gauche)
-const int PIN_STEP = 26;                            // STEP du driver Z (via diviseur ou optocoupleur, 3,3 V max)
-const int PIN_DIR  = 27;                            // DIR du driver Z
-const int PIN_UV   = 34;                            // sortie analogique du capteur UV (ADC1, entrée seule)
-const int PIN_ALERT = 2;                            // LED d'alerte (LED bleue de la carte DevKit)
-static_assert(PIN_DIR < 32, "PIN_DIR doit etre < 32 (lecture rapide par GPIO_IN_REG)");
+// ------------------------- Wiring (to adapt) -------------------------
+const int PIN_HX_SCK = 18;                          // SCK common to all HX711 modules
+const int PIN_HX_DOUT[5] = {19, 21, 22, 23, 25};    // 0 = Z arm, 1..4 = vat corners (front-left, front-right, rear-right, rear-left)
+const int PIN_STEP = 26;                            // STEP of the Z driver (through a divider or optocoupler, 3.3 V max)
+const int PIN_DIR  = 27;                            // DIR of the Z driver
+const int PIN_UV   = 34;                            // analog output of the UV sensor (ADC1, input only)
+const int PIN_ALERT = 2;                            // alert LED (blue LED of the DevKit board)
+static_assert(PIN_DIR < 32, "PIN_DIR must be < 32 (fast read by GPIO_IN_REG)");
 
-// ------------------------- Réglages sauvegardés -------------------------
+// ------------------------- Saved settings -------------------------
 Preferences prefs;
 struct Config {
-  int   nCells      = 1;        // 1 = bras Z seul, 5 = bras Z + 4 coins
+  int   nCells      = 1;        // 1 = Z arm only, 5 = Z arm + 4 corners
   long  offset[5]   = {0,0,0,0,0};
-  float scale[5]    = {-21000,-21000,-21000,-21000,-21000};   // points HX711 par newton (valeur par défaut à étalonner)
-  float stepsPerMm  = 400;      // ex. vis T8 pas 8 mm, moteur 200 pas, micro-pas 1/16 : 200*16/8 = 400
-  bool  dirInvert   = false;    // inverse le sens de comptage si Z diminue quand le plateau monte
-  int   uvHigh      = 900;      // seuil ADC UV allumé
-  int   uvLow       = 600;      // seuil ADC UV éteint (hystérésis)
-  float alertN      = 60;       // allume la LED d'alerte au-delà de cette force (valeur absolue)
-  float holdS       = 5;        // durée du maintien en bas pendant le test (= attente avant exposition du fichier de test)
-  float ckStatN     = 0.3;      // seuil d'appui statique (N) pendant le maintien
-  float ckDescN     = 0.4;      // seuil d'écart (N) pendant la descente
-  float vatW        = 200;      // dimensions du bac entre les cellules (mm), pour localiser un résidu
+  float scale[5]    = {-21000,-21000,-21000,-21000,-21000};   // HX711 points per newton (default to calibrate)
+  float stepsPerMm  = 400;      // e.g. T8 screw 8 mm pitch, 200-step motor, 1/16 microstep: 200*16/8 = 400
+  bool  dirInvert   = false;    // inverts the count direction if Z decreases when the platform goes up
+  int   uvHigh      = 900;      // UV-on ADC threshold
+  int   uvLow       = 600;      // UV-off ADC threshold (hysteresis)
+  float alertN      = 60;       // turns on the alert LED above this force (absolute value)
+  float holdS       = 5;        // bottom hold time of the test (= wait before exposure of the test file)
+  float ckStatN     = 0.3;      // static push threshold (N) during the hold
+  float ckDescN     = 0.4;      // deviation threshold (N) during the descent
+  float vatW        = 200;      // vat dimensions between the cells (mm), to locate a debris
   float vatH        = 125;
-  float zMaxN       = 140;      // force maximale du moteur Z (N)
-  float layerMm     = 0.05;     // hauteur d'arrêt du test = épaisseur de la première couche (mm)
+  float zMaxN       = 140;      // maximum Z motor force (N)
+  float layerMm     = 0.05;     // test stop height = first layer thickness (mm)
 } cfg;
 
-// ------------------------- Contrôle du bac (bibliothèque msla_detect) -------------------------
-msla::BacRef ref{};                           // référence enregistrée (bac propre), persistée en Preferences
-msla::BacControleur bac;                      // contrôleur du bac en flux (état + tampons)
-int ledMode = 0; unsigned long ledT0 = 0;     // 0 normal, 1 clignote (bac propre), 2 fixe (résidu)
-// pesée : zéro sans bac, poids et répartition du bac vide de référence
-const float GN = 0.00980665f;                  // newtons par gramme
+// ------------------------- Vat control (msla_detect library) -------------------------
+msla::BacRef ref{};                           // recorded reference (clean vat), kept in Preferences
+msla::BacControleur bac;                      // streaming vat controller (state + buffers)
+int ledMode = 0; unsigned long ledT0 = 0;     // 0 normal, 1 blink (clean vat), 2 steady (debris)
+// weigh: zero without vat, weight and share of the reference empty vat
+const float GN = 0.00980665f;                  // newtons per gram
 struct Weigh { uint32_t magic = 0; long emptyOff[5] = {0,0,0,0,0}; float vatG = 0; float share[4] = {0.25f,0.25f,0.25f,0.25f}; float density = 1.1f; } wg;
 
-// ------------------------- État -------------------------
+// ------------------------- State -------------------------
 volatile long stepCount = 0;
 volatile bool dirInv = false;
 bool streaming = false;
 bool uvState = false;
 unsigned long t0us = 0;
 
-// Lecture rapide de DIR dans l'interruption (PIN_DIR doit être < 32 : registre GPIO_IN_REG)
+// Fast read of DIR in the interrupt (PIN_DIR must be < 32: GPIO_IN_REG register)
 static inline bool IRAM_ATTR readDirFast() {
   return (REG_READ(GPIO_IN_REG) >> PIN_DIR) & 1;
 }
@@ -89,7 +90,7 @@ bool hxAllReady() {
   for (int i = 0; i < cfg.nCells; i++) if (digitalRead(PIN_HX_DOUT[i])) return false;
   return true;
 }
-// Lit les nCells convertisseurs en même temps (horloge commune). Gain 128, voie A.
+// Reads the nCells converters at the same time (common clock). Gain 128, channel A.
 void hxReadAll(long out[5]) {
   long v[5] = {0,0,0,0,0};
   for (int b = 0; b < 24; b++) {
@@ -102,7 +103,7 @@ void hxReadAll(long out[5]) {
   digitalWrite(PIN_HX_SCK, HIGH); delayMicroseconds(1);
   digitalWrite(PIN_HX_SCK, LOW);  delayMicroseconds(1);
   for (int i = 0; i < cfg.nCells; i++) {
-    if (v[i] & 0x800000) v[i] |= 0xFF000000;   // extension du signe sur 32 bits
+    if (v[i] & 0x800000) v[i] |= 0xFF000000;   // sign extension to 32 bits
     out[i] = v[i];
   }
 }
@@ -123,7 +124,7 @@ bool hxAverage(long avg[5], int n) {
   return true;
 }
 
-// ------------------------- Sauvegarde -------------------------
+// ------------------------- Persistence -------------------------
 void saveCfg() {
   prefs.begin("banc", false);
   prefs.putBytes("cfg", &cfg, sizeof(cfg));
@@ -143,9 +144,9 @@ void saveRef() {
   prefs.end();
 }
 
-// ------------------------- Pesée du bac et de la résine (4 cellules) -------------------------
+// ------------------------- Vat and resin weigh (4 cells) -------------------------
 void saveWg() { prefs.begin("banc", false); prefs.putBytes("pesee", &wg, sizeof(wg)); prefs.end(); }
-// poids sur chaque coin, en grammes, depuis le zéro sans bac
+// weight on each corner, in grams, from the zero without a vat
 bool cornerGrams(float g[4], int n) {
   long avg[5];
   if (!hxAverage(avg, n)) return false;
@@ -175,7 +176,7 @@ void cmdFuite(float minutes) {
   Serial.printf("# FUITE : mesure pendant %.0f min, ne touche pas l'imprimante\n", minutes);
   long r[5];
   while (millis() - t0 < (unsigned long)(minutes * 60000)) {
-    hxWaitRead(r);                                // garde les HX711 actifs
+    hxWaitRead(r);                                // keeps the HX711 modules active
     if (millis() - last > 60000) { last = millis(); Serial.printf("# FUITE : %.0f min ecoulees\n", (last - t0) / 60000.0f); }
   }
   if (!cornerGrams(g, 160)) return;
@@ -184,12 +185,12 @@ void cmdFuite(float minutes) {
   Serial.printf("# FUITE : %.1f g perdus en %.0f min, soit %.1f ml/h%s\n", fr.lost, minutes, fr.rate, fr.fuiteProbable ? " : FUITE PROBABLE" : " : pas de fuite mesurable");
 }
 
-// ------------------------- Contrôle du bac : liaison avec la bibliothèque -------------------------
-// Construit la configuration de la bibliothèque à partir de la configuration du firmware.
+// ------------------------- Vat control: link with the library -------------------------
+// Builds the library configuration from the firmware configuration.
 static msla::BacConfig bacConfig() {
   return { cfg.nCells, cfg.holdS, cfg.ckStatN, cfg.ckDescN, cfg.vatW, cfg.vatH, cfg.zMaxN, cfg.layerMm };
 }
-bool ckEnCours() { return bac.actif(); }       // utilisé par loop() et le test hôte
+bool ckEnCours() { return bac.actif(); }       // used by loop() and the host test
 
 void ckArm(int mode) {
   ledMode = 0;
@@ -217,7 +218,7 @@ static void afficheControle(const msla::ControleResultat& r) {
   Serial.printf(", risque %s%s\n", risqueTexte(r.risque), r.hasRef ? "" : " (pas de reference : lance « ref » sur bac propre)");
   ledMode = r.residu ? 2 : 1; ledT0 = millis();
 }
-// Le côté vers lequel le centre d'effort se décale est le côté le plus bas du plateau.
+// The side the force center shifts toward is the lowest side of the platform.
 static void affichePlaneite(const msla::PlaneiteResultat& r) {
   if (!r.atteint5N) { Serial.println("# PLANEITE : la somme des 4 cellules n'a jamais atteint 5 N (descente trop rapide ou arret trop haut)"); return; }
   const char* fb = r.dy < -4 ? "avant" : r.dy > 4 ? "arriere" : "";
@@ -227,18 +228,18 @@ static void affichePlaneite(const msla::PlaneiteResultat& r) {
   else Serial.printf(" : cote le plus bas %s%s%s (convertir en angle dans le simulateur)\n", fb, (fb[0] && lr[0]) ? " " : "", lr);
 }
 
-// ------------------------- Protocole série avec la carte mère (Serial2) -------------------------
-// Voir firmware/PROTOCOLE.md. La carte mère est maître ; le banc répond et signale.
-int   protoLayer = -1;          // couche courante annoncée par la carte mère (« L n »)
-float protoArea = 0;            // aire exposée de la couche courante (mm²), « L n aire »
-bool  protoUV = false;          // état UV annoncé (« U 1 / U 0 »)
+// ------------------------- Serial protocol with the motherboard (Serial2) -------------------------
+// See firmware/PROTOCOLE.md. The motherboard is the master; the bench answers and signals.
+int   protoLayer = -1;          // current layer announced by the motherboard ("L n")
+float protoArea = 0;            // exposed area of the current layer (mm²), "L n area"
+bool  protoUV = false;          // announced UV state ("U 1 / U 0")
 bool  protoPaused = false;
-bool  protoVatPending = false;  // un « V » attend son verdict de bac
+bool  protoVatPending = false;  // a "V" waits for its vat verdict
 String protoRx;
 
 void protocoleEnvoi(const char* s) { Serial2.println(s); }
 
-// Verdict de couche vers la carte mère : « OK <n> », « PAUSE <code> <n> » ou « STOP <code> <n> ».
+// Layer verdict to the motherboard: "OK <n>", "PAUSE <code> <n>" or "STOP <code> <n>".
 void protocoleVerdictCouche(int n, const char* evt, const char* code) {
   char buf[48];
   if (code) snprintf(buf, sizeof(buf), "%s %s %d", evt, code, n);
@@ -246,16 +247,16 @@ void protocoleVerdictCouche(int n, const char* evt, const char* code) {
   protocoleEnvoi(buf);
 }
 
-// ---- Détection par couche en direct (apprentissage, bibliothèque msla_detect) ----
-// La carte mère fournit la couche (« L ») et l'UV (« U ») ; le banc en déduit les phases
-// à partir du mouvement Z et alimente le détecteur couche par couche.
+// ---- Live per-layer detection (learning, msla_detect library) ----
+// The motherboard gives the layer ("L") and the UV ("U"); the bench derives the phases
+// from the Z movement and feeds the detector layer by layer.
 bool  detActive = false;
-float detNoise = 1.0f, detObstacleMul = 2.5f, detLowRatio = 0.6f;   // calibration (défauts type figurine)
-float detAreaDefaut = 100.0f;                                       // aire si « L » sans aire
+float detNoise = 1.0f, detObstacleMul = 2.5f, detLowRatio = 0.6f;   // calibration (figurine-type defaults)
+float detAreaDefaut = 100.0f;                                       // area if "L" without an area
 msla::SuiviCouches    detSuivi;
 msla::DetecteurCouche detDet;
-int   detPrevLy = -1;                                              // pour détecter un changement de couche
-float detBF[3], detBZ[3], detBT[3], detBA[3]; bool detBUV[3]; int detBLy[3]; int detBN = 0;   // fenêtre med3
+int   detPrevLy = -1;                                              // to detect a layer change
+float detBF[3], detBZ[3], detBT[3], detBA[3]; bool detBUV[3]; int detBLy[3]; int detBN = 0;   // med3 window
 
 static float med3f(float a, float b, float c) {
   const float mn = a < b ? a : b, mx = a < b ? b : a;
@@ -267,7 +268,7 @@ void detDemarrer() {
   detDet.init("z", detNoise, detObstacleMul, detLowRatio, cfg.zMaxN);
   detPrevLy = -1; detBN = 0; detActive = true;
 }
-// Traduit les drapeaux d'une couche en verdict protocole (danger -> STOP, anomalie -> PAUSE).
+// Translates the flags of a layer into a protocol verdict (danger -> STOP, anomaly -> PAUSE).
 void detFlux(const msla::Feature& ft, double area, int ly) {
   msla::LayerFlags lf = detDet.pousser(ft, area > 0 ? area : detAreaDefaut);
   const char* stop = nullptr; const char* pause = nullptr;
@@ -283,12 +284,12 @@ void detFlux(const msla::Feature& ft, double area, int ly) {
   else if (pause) protocoleVerdictCouche(ly, "PAUSE", pause);
   else protocoleVerdictCouche(ly, "OK", nullptr);
 }
-// Un échantillon de mesure pendant l'impression. Filtre médian glissant (med3) sur la force,
-// phase déduite du mouvement Z et de l'UV, alimentation du suivi des couches.
+// One measurement sample during the print. Running median filter (med3) on the force,
+// phase derived from the Z movement and the UV, feeding of the layer tracker.
 void detEchantillon(float t, float z, float f0) {
   const float aEch = protoArea > 0 ? protoArea : detAreaDefaut;
-  // La fenêtre med3 ne doit pas chevaucher une frontière de couche (sinon la force
-  // d'une couche fuit dans la suivante). On la vide au changement de couche.
+  // The med3 window must not overlap a layer boundary (otherwise the force of one
+  // layer leaks into the next). We clear it at each layer change.
   if (protoLayer != detPrevLy) { detBN = 0; detPrevLy = protoLayer; }
   if (detBN < 3) { detBF[detBN]=f0; detBZ[detBN]=z; detBT[detBN]=t; detBUV[detBN]=protoUV; detBLy[detBN]=protoLayer; detBA[detBN]=aEch; detBN++; }
   else {
@@ -296,13 +297,13 @@ void detEchantillon(float t, float z, float f0) {
     detBF[2]=f0; detBZ[2]=z; detBT[2]=t; detBUV[2]=protoUV; detBLy[2]=protoLayer; detBA[2]=aEch;
   }
   if (detBN < 3) return;
-  const float ff = med3f(detBF[0], detBF[1], detBF[2]);          // force filtrée du point milieu
+  const float ff = med3f(detBF[0], detBF[1], detBF[2]);          // filtered force of the middle point
   const float dt = detBT[2] - detBT[0], v = dt > 0 ? (detBZ[2] - detBZ[0]) / dt : 0;
   int ph;
-  if (v < -0.05f) ph = 2;                                        // descente (Z baisse)
-  else if (v > 0.05f) ph = 1;                                    // remontée / arrachement (Z monte)
-  else ph = detBUV[1] ? 0 : (detBZ[1] > 0.5f ? 3 : 4);          // immobile : exposition / attente haut (Z haut) / attente bas (Z bas)
-  if (detBLy[1] < 0) return;                                     // avant le premier « L »
+  if (v < -0.05f) ph = 2;                                        // descent (Z goes down)
+  else if (v > 0.05f) ph = 1;                                    // up move / peel (Z goes up)
+  else ph = detBUV[1] ? 0 : (detBZ[1] > 0.5f ? 3 : 4);          // still: exposure / top wait (Z high) / bottom wait (Z low)
+  if (detBLy[1] < 0) return;                                     // before the first "L"
   msla::Feature ft; double aire = 0;
   const int fin = detSuivi.pousser((double)ff, (double)detBZ[1], ph, detBLy[1], (double)detBA[1], &ft, &aire);
   if (fin >= 0) detFlux(ft, aire, fin);
@@ -312,7 +313,7 @@ void detArreter() {
   detActive = false;
 }
 
-// Résultat du contrôle du bac demandé par « V ».
+// Result of the vat control requested by "V".
 void protocoleVatResultat(const msla::ControleResultat& r) {
   if (!protoVatPending) return;
   protoVatPending = false;
@@ -367,7 +368,7 @@ void ckUpdate(float t, float z, const float f[5], bool uv) {
   }
 }
 
-// ------------------------- Commandes -------------------------
+// ------------------------- Commands -------------------------
 void printHeader() {
   Serial.print("t_s,fz_N");
   if (cfg.nCells == 5) Serial.print(",c0_N,c1_N,c2_N,c3_N");
@@ -434,8 +435,8 @@ void handleCommand(String line) {
     long avg[5];
     if (hxAverage(avg, 40)) {
       float newtons = g * 0.00980665f;
-      // Bras Z (i = 0) : masse SUSPENDUE au plateau = tire vers le bac comme l'arrachement -> force positive.
-      // Coins du bac (i = 1..4) : masse POSEE sur le bac = appui comme la compression -> force negative.
+      // Z arm (i = 0): mass HUNG from the platform = pulls toward the vat like the peel -> positive force.
+      // Vat corners (i = 1..4): mass PLACED on the vat = push like the compression -> negative force.
       float sgn = (i == 0) ? 1.0f : -1.0f;
       cfg.scale[i] = sgn * (float)(avg[i] - cfg.offset[i]) / newtons;
       saveCfg();
@@ -496,7 +497,7 @@ void setup() {
   analogSetPinAttenuation(PIN_UV, ADC_11db);
   loadCfg();
   attachInterrupt(digitalPinToInterrupt(PIN_STEP), onStepEdge, RISING);
-  Serial2.begin(115200, SERIAL_8N1, 16, 17);   // liaison carte mère (voir firmware/PROTOCOLE.md)
+  Serial2.begin(115200, SERIAL_8N1, 16, 17);   // link to the motherboard (see firmware/PROTOCOLE.md)
   delay(300);
   Serial.println("# Banc de mesure MSLA pret. Tapez « aide ».");
   printInfo();
@@ -511,8 +512,8 @@ void loop() {
     if (c == '\n' || c == '\r') { if (rx.length()) handleCommand(rx); rx = ""; }
     else if (rx.length() < 80) rx += c;
   }
-  protocolePoll();   // commandes de la carte mère (Serial2)
-  // LED : clignotement « bac propre » 3 fois, fixe si résidu
+  protocolePoll();   // commands from the motherboard (Serial2)
+  // LED: blink "clean vat" 3 times, steady if debris
   if (ledMode == 1) { unsigned long e = millis() - ledT0; if (e > 1500) ledMode = 0; else digitalWrite(PIN_ALERT, (e / 250) % 2 == 0); }
   else if (ledMode == 2) digitalWrite(PIN_ALERT, HIGH);
   if (!streaming && !ckEnCours() && !detActive) return;
@@ -520,7 +521,7 @@ void loop() {
 
   long raw[5];
   hxReadAll(raw);
-  float t = (micros() - t0us) * 1e-6f;   // t0us = 0 si « start » n'a pas été envoyé : temps depuis le démarrage
+  float t = (micros() - t0us) * 1e-6f;   // t0us = 0 if "start" was not sent: time since power-on
   float f[5];
   for (int i = 0; i < cfg.nCells; i++) f[i] = (float)(raw[i] - cfg.offset[i]) / cfg.scale[i];
 
@@ -534,11 +535,11 @@ void loop() {
   float fmax = fabsf(f[0]);
   if (cfg.nCells == 5) { float s = f[1] + f[2] + f[3] + f[4]; fmax = fmaxf(fmax, fabsf(s)); }
   if (ledMode == 0) digitalWrite(PIN_ALERT, fmax > cfg.alertN ? HIGH : LOW);
-  bool alert = fmax > cfg.alertN;                       // alarme d'effort immédiate vers la carte mère
+  bool alert = fmax > cfg.alertN;                       // immediate force alarm to the motherboard
   if (alert && !alertPrev) protocoleEnvoi("ALRM FORCE");
   alertPrev = alert;
   ckUpdate(t, z, f, uvState);
-  if (detActive) detEchantillon(t, z, f[0]);            // détection par couche en direct
+  if (detActive) detEchantillon(t, z, f[0]);            // live per-layer detection
   if (!streaming) return;
 
   char buf[160];
