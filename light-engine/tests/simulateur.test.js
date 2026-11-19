@@ -151,6 +151,20 @@ m.AB.n = 1;
   });
 }
 
+/* ---------- Lentille de Fresnel : tolérances de positionnement ---------- */
+{
+  const p = { frF: 250, frS: 20, frR: 125, frDz: 2, frDx: 1, frWarp: 1, frRough: 0.3 };
+  const r = m.fresnelModel(p, 0.35);
+  near(r.tsrc, Math.atan(10 / 250) * 180 / Math.PI, 1e-9, 'divergence de la source = atan((taille/2) / focale)');
+  near(r.tdef, 125 * 2 / 62500 * 180 / Math.PI, 1e-9, 'inclinaison due à la défocalisation = rayon × écart / focale²');
+  near(r.shDef, 350 * Math.tan(0.004), 1e-9, 'décalage = distance × tan(inclinaison)');
+  near(m.fresnelModel(p, 1.5).shDef / r.shDef, 1.5 / 0.35, 1e-6, 'le décalage croît proportionnellement à la distance écran → résine');
+  ok(m.fresnelModel(Object.assign({}, p, { frDz: 0, frDx: 0, frWarp: 0, frRough: 0 }), 0.35).shTot === 0, 'sans erreur de positionnement, aucun décalage');
+  ok(m.fresnelModel(Object.assign({}, p, { frRough: 1 }), 0.35).tsp > r.tsp, 'la rugosité des facettes élargit le cône');
+  near(m.fresnelModel(Object.assign({}, p, { frDz: 8 }), 0.35).tsp, r.tsp, 1e-12, 'la défocalisation seule n’élargit pas le cône (premier ordre)');
+  ok(m.fresnelModel(Object.assign({}, p, { frF: 500 }), 0.35).tsrc < r.tsrc, 'une focale plus longue réduit la divergence de la source');
+}
+
 /* ---------- Modèle 3D synthétique ---------- */
 const mesh = m.genDentalMesh('arch');
 ok(mesh && mesh.pos.length > 3000 && mesh.idx.length % 3 === 0, 'arcade dentaire synthétique générée (' + mesh.idx.length / 3 + ' triangles)');
