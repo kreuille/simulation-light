@@ -1686,8 +1686,11 @@ function initM3D(){
   function drawScope(){
     const c=$('m3dscope');if(!c||!c.getContext)return;const g=c.getContext('2d'),W=c.width,H=c.height;
     g.clearRect(0,0,W,H);
-    const sim=STATE.sim,total=M.totalT||1,layerDur=total/Math.max(M.nl,1);
-    const win=Math.max(0.8,2.1*layerDur),t1=Math.min(total,M.tcur+0.18*win),t0=t1-win;
+    const sim=STATE.sim,total=M.totalT||1;
+    // La fenêtre suit la vitesse de lecture : au ralenti elle se rétrécit (la courbe se dilate → plus de détail),
+    // en accéléré elle s'élargit (vue d'ensemble). ~5 s de lecture réelle affichées quelle que soit la vitesse.
+    const sp=(M.speed==='max')?240:M.speed;
+    const win=Math.max(0.35,Math.min(total,sp*5)),t1=Math.min(total,M.tcur+0.18*win),t0=t1-win;
     const padL=5,padR=5,padT=13,padB=5,plotW=W-padL-padR,plotH=H-padT-padB;
     const X=t=>padL+(t-t0)/win*plotW;
     const i0=idx(t0),i1=idx(t1),fstep=Math.max(1,(i1-i0)/400|0);
@@ -1713,7 +1716,7 @@ function initM3D(){
     // curseur « maintenant »
     g.strokeStyle='#ffffff';g.lineWidth=1;g.beginPath();g.moveTo(X(M.tcur),padT);g.lineTo(X(M.tcur),H-padB);g.stroke();
     // titre + repères d'échelle
-    g.fillStyle='#aeb9d2';g.font='10px ui-monospace,monospace';g.textAlign='left';g.fillText(T('Capteurs (live)'),padL+2,10);
+    g.fillStyle='#aeb9d2';g.font='10px ui-monospace,monospace';g.textAlign='left';g.fillText(T('Capteurs (live)')+'  ·  '+fmt(win,win<10?1:0)+' s',padL+2,10);
     g.textAlign='right';g.fillText(fmt(hi,0)+' N',W-padR-2,10);g.fillText(fmt(lo,0)+' N',W-padR-2,H-2);
   }
   function drawLCD(ph,ly){
