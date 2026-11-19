@@ -173,6 +173,8 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
           <option value="support">Supports cassés (50 %)</option>
           <option value="residue">Résidu tombé dans le bac</option>
           <option value="fep">Film qui se détend</option>
+          <option value="align">Plateau non aligné (penché)</option>
+          <option value="residue0">Résidu dans le bac avant l'impression</option>
         </select>
       </div>
       <div class="ctl"><label for="L">Couche de l'incident <output id="Lo"></output></label><input id="L" type="range" min="5" max="55" step="1" value="30"></div>
@@ -223,7 +225,7 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
   .m3d-bar>i{display:block;height:100%;border-radius:4px}
   .m3d-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle}
   .m3d-lcd{position:absolute;bottom:10px;right:10px;pointer-events:none;text-align:center;color:#aeb9d2;font:500 11px/1.2 var(--mono,ui-monospace,monospace)}
-  #m3dlcd{display:block;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:#05060a}
+  #m3dlcd,#m3dcells{display:block;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:#05060a}
   .m3d-scope{position:absolute;bottom:10px;left:10px;pointer-events:none}
   #m3dscope{display:block;width:300px;max-width:42vw;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(9,13,24,.72);backdrop-filter:blur(4px)}
   .m3d-alert{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:#e0352b;color:#fff;font-weight:700;padding:6px 14px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.45);display:none;font:700 13px/1.2 var(--mono,ui-monospace,monospace)}
@@ -256,6 +258,8 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
         <div class="m3d-alert" id="m3dalert"></div>
         <div class="m3d-scope"><canvas id="m3dscope" width="300" height="140"></canvas></div>
         <div class="m3d-lcd">
+          <canvas id="m3dcells" width="150" height="116"></canvas>
+          <div id="m3dcellscap" style="margin:2px 0 8px"></div>
           <canvas id="m3dlcd" width="150" height="98"></canvas>
           <div id="m3dlcdcap" style="margin-top:3px"></div>
         </div>
@@ -513,9 +517,11 @@ const SCEN={
   detach:"La pièce se décolle du plateau et reste collée au film. À la descente suivante, le plateau vient l'écraser contre l'écran.",
   support:"La moitié des supports casse : la pièce ne tient plus que partiellement et la force d'arrachement chute.",
   residue:"Un éclat de résine durcie de 0,35 mm tombe au fond du bac, sous la pièce.",
-  fep:"Le film se détend couche après couche : il faut plus de course avant que la couche se décolle."
+  fep:"Le film se détend couche après couche : il faut plus de course avant que la couche se décolle.",
+  align:"Le plateau n'est pas parallèle à l'écran : la charge est décalée vers un coin. Les 4 cellules du bac le voient au décalage du centre de gravité.",
+  residue0:"Un résidu de résine durcie est déjà dans le bac avant de lancer : dès les premières couches le plateau l'écrase, décentré."
 };
-const TRIGGER={normal:[],detach:['faible','obstacle','crash','appui'],support:['faible'],residue:['obstacle','crash','appui'],fep:['fep']};
+const TRIGGER={normal:[],detach:['faible','obstacle','crash','appui'],support:['faible'],residue:['obstacle','crash','appui'],fep:['fep'],align:[],residue0:['obstacle','crash','appui']};
 const AMP={z:{white:0.03,motor:0.1,fan:0.04,mains:0.06,shock:0.8,therm:0.3,glitch:4},
            vat:{white:0.08,motor:0.35,fan:0.15,mains:0.05,shock:0.75,therm:0.4,glitch:4}};
 const SRC=[['white','Bruit de mesure (HX711 / StallGuard)'],['motor','Vibrations du moteur Z'],['fan','Ventilateur de l\'écran'],['mains','Secteur 50 Hz'],['shock','Chocs externes'],['therm','Dérive thermique'],['glitch','Pics de lecture']];
@@ -532,6 +538,7 @@ function partOf(P){const M=P.machine,G=P.geom;const amax=Math.max(...G.areas);co
 
 function simulate(P){
   const M=P.machine,R=P.resin,Q=P.proc,G=P.geom,n=G.areas.length,PART=partOf(P);
+  if(P.scen==='align'){PART.x=Math.min(M.vatW*0.8,PART.x+M.vatW*0.17);PART.y=Math.max(M.vatH*0.14,PART.y-M.vatH*0.13);} // plateau penché : charge décalée vers un coin
   const r=mulberry32(P.seed*9973+7);
   const {vT,f:viscF}=viscOf(R,P.temp),vr400=vT/400;
   const tilt=M.release==='tilt';
@@ -547,6 +554,7 @@ function simulate(P){
     if(P.scen==='support'&&i===P.L) areaMul=0.5;
     if(P.scen==='fep'&&i>=P.L) fepK=k0*Math.max(0.25,1-(i-P.L+1)*0.13);
     if(P.scen==='residue'&&i===P.L){residue=P.resT;kc=60*P.resD;resOff=!!P.resOff;resPos=resOff?{x:Math.min(M.vatW*0.9,PART.x+PART.rx*1.3),y:PART.y}:{x:PART.x+(r()-0.5)*PART.rx,y:PART.y+(r()-0.5)*PART.ry};truth.residuePos=resPos}
+    if(P.scen==='residue0'&&i===0){residue=Math.max(P.resT,0.3);kc=60*Math.max(P.resD,2);resOff=false;resPos={x:Math.max(PART.rx,PART.x-PART.rx*0.7),y:Math.min(M.vatH-PART.ry,PART.y+PART.ry*0.6)};truth.residuePos=resPos} // résidu présent avant de lancer, décentré
     // 4 : attente UV éteint, puis 0 : exposition
     const tauD=0.25*vr400*R.squeezeTau*Math.sqrt(Math.max(prevA,0.5)/10)*(1+prevSuc/8);
     truth.settleDown.push(i===0?0:settleOf(cSqueeze,tauD));
@@ -1063,6 +1071,15 @@ Object.assign(I18N,{
 "Fuite détectée : ~{r} ml/h":["Leak detected: ~{r} ml/h","检测到泄漏：约 {r} ml/h"],
 "Fuite sous le seuil de détection":["Leak below detection threshold","泄漏低于检测阈值"],
 "Aucune fuite":["No leak","无泄漏"],
+"Plateau non aligné (penché)":["Plate not aligned (tilted)","平台未对齐（倾斜）"],
+"Résidu dans le bac avant l'impression":["Residue in the vat before printing","打印前料槽内有残渣"],
+"Le plateau n'est pas parallèle à l'écran : la charge est décalée vers un coin. Les 4 cellules du bac le voient au décalage du centre de gravité.":["The plate is not parallel to the screen: the load is shifted toward one corner. The 4 vat cells see it as an offset of the centre of gravity.","平台与屏幕不平行：载荷偏向一个角。料槽的 4 个传感器通过重心偏移发现它。"],
+"Un résidu de résine durcie est déjà dans le bac avant de lancer : dès les premières couches le plateau l'écrase, décentré.":["A cured-resin residue is already in the vat before starting: from the first layers the plate crushes it, off-centre.","开始前料槽内已有固化树脂残渣：从最初几层起平台就会压到它，且偏心。"],
+"4 cellules du bac":["4 vat cells","料槽 4 个传感器"],
+"Centre de gravité":["Centre of gravity","重心"],
+"Charge décentrée":["Off-centre load","载荷偏心"],
+"décalage {d} mm":["offset {d} mm","偏移 {d} mm"],
+"Charge centrée":["Load centred","载荷居中"],
 "carte mère : STOP couche {l} ({k})":["motherboard: STOP layer {l} ({k})","主板：STOP 第 {l} 层（{k}）"],
 "Three.js n'a pas pu être chargé : la vue 3D est indisponible, le reste du simulateur fonctionne.":["Three.js could not be loaded: the 3D view is unavailable, the rest of the simulator works.","无法加载 Three.js：3D 视图不可用，模拟器的其余部分正常工作。"]
 });
@@ -1105,7 +1122,7 @@ function outputs(){
   $('ckVo').textContent=$('ckV').value+' mm/min';$('ckZo').textContent=fmt(+$('ckZ').value*1000,0)+' µm';$('ckHo').textContent=fmt(+$('ckH').value,1)+' s';
   $('bcResino').textContent=$('bcResin').value+' ml';$('bcLeako').textContent=+$('bcLeak').value===0?T('aucune'):$('bcLeak').value+' ml/h';$('plTilto').textContent=fmt(+$('plTilt').value,2)+'°';$('plVo').textContent=$('plV').value+' mm/min';
   $('resTo').textContent=fmt(+$('resT').value*1000,0)+' µm';$('resDo').textContent=fmt(+$('resD').value,1)+' mm';
-  $('resCtl').hidden=$('scen').value!=='residue';
+  $('resCtl').hidden=$('scen').value!=='residue'&&$('scen').value!=='residue0';
   const rt=+$('resT').value,rv={t:fmt(rt*1000,0),d:fmt(+$('resD').value,1),h:fmt(PROF.proc.layerH*1000,0),c:fmt(Math.max(0,rt-PROF.proc.layerH)*1000,0)};
   $('scendesc').textContent=$('scen').value==='residue'?(+$('resOff').value
     ?T("Un éclat de résine durcie de {t} µm d'épaisseur et {d} mm de diamètre tombe au fond du bac, à côté de la pièce : seul le plateau pourrait le toucher, pendant les couches de base.",rv)
@@ -1573,12 +1590,22 @@ function initM3D(){
   function idx(t){const xs=STATE.sim.T;let lo=0,hi=xs.length-1;if(t<=xs[0])return 0;if(t>=xs[hi])return hi;while(hi-lo>1){const m=(lo+hi)>>1;if(xs[m]<=t)lo=m;else hi=m;}return lo;}
   function interp(ch,t){const xs=ch&&ch.t,fs=ch&&ch.f;if(!xs||!xs.length)return{v:null,gap:1e9};const hi0=xs.length-1;if(t<=xs[0])return{v:fs[0],gap:xs[0]-t};if(t>=xs[hi0])return{v:fs[hi0],gap:t-xs[hi0]};let lo=0,hi=hi0;while(hi-lo>1){const m=(lo+hi)>>1;if(xs[m]<=t)lo=m;else hi=m;}const a=(t-xs[lo])/((xs[hi]-xs[lo])||1);return{v:fs[lo]+(fs[hi]-fs[lo])*a,gap:Math.min(t-xs[lo],xs[hi]-t)};}
   function sgVal(t){const r=interp(STATE.s.sg,t);return(r.v==null||r.gap>0.15)?null:r.v;}
+  function interpAt(xs,fs,t){if(!xs||!xs.length)return 0;const hi0=xs.length-1;if(t<=xs[0])return fs[0];if(t>=xs[hi0])return fs[hi0];let lo=0,hi=hi0;while(hi-lo>1){const m=(lo+hi)>>1;if(xs[m]<=t)lo=m;else hi=m;}const a=(t-xs[lo])/((xs[hi]-xs[lo])||1);return fs[lo]+(fs[hi]-fs[lo])*a;}
+  // 4 cellules du bac + centre de gravité (où s'applique la charge). Coins : 0=AvG(0,0) 1=AvD(W,0) 2=ArD(W,H) 3=ArG(0,H)
+  function cellData(){
+    const v=STATE.s&&STATE.s.vat;if(!v||!v.c)return null;
+    const f=[interpAt(v.t,v.c[0],M.tcur),interpAt(v.t,v.c[1],M.tcur),interpAt(v.t,v.c[2],M.tcur),interpAt(v.t,v.c[3],M.tcur)];
+    const W=STATE.p.machine.vatW,H=STATE.p.machine.vatH,af=f.map(Math.abs),as=af[0]+af[1]+af[2]+af[3];
+    let cx=W/2,cy=H/2,off=0,valid=as>2;
+    if(valid){const s=af.map(x=>x/as);cx=W*(s[1]+s[2]);cy=H*(s[2]+s[3]);off=Math.hypot(cx-W/2,cy-H/2);}
+    return {f,af,cx,cy,off,valid,W,H,thr:Math.max(8,W*0.08)};
+  }
   function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
   function setTxt(id,t){const e=$(id);if(e)e.textContent=t;}
   function rk(k,v){return '<span class="m3d-rk">'+k+' : <b>'+v+'</b></span>';}
 
   // ---- scène Three.js ----
-  let renderer,scene,camera,screenMesh,lcdMesh,platform,arm,pillar,uvLight,partGroup,vatGrp,boxGeo,cylGeo,fep,resin,resinSurf;
+  let renderer,scene,camera,screenMesh,lcdMesh,platform,arm,pillar,uvLight,partGroup,vatGrp,boxGeo,cylGeo,fep,resin,resinSurf,cog;
   function buildScene(){
     renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});
     renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
@@ -1611,6 +1638,7 @@ function initM3D(){
     // résine : liquide ambré dans le bac + surface, et anneau (ride) qui apparaît au contact
     resin=new THREE.Mesh(boxGeo,new THREE.MeshStandardMaterial({color:0xffb347,transparent:true,opacity:0.2,roughness:0.3,metalness:0,depthWrite:false}));scene.add(resin);
     resinSurf=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshStandardMaterial({color:0xffc864,emissive:0x5a3708,emissiveIntensity:0.35,transparent:true,opacity:0.45,roughness:0.12,metalness:0.2,side:THREE.DoubleSide}));resinSurf.rotation.x=-Math.PI/2;scene.add(resinSurf);
+    cog=new THREE.Mesh(new THREE.SphereGeometry(1,18,12),new THREE.MeshStandardMaterial({color:0xffe066,emissive:0x8a6a00,emissiveIntensity:0.9,depthTest:false}));cog.renderOrder=12;scene.add(cog); // centre de gravité (4 cellules) — toujours visible
     M.built=true;
   }
   function rebuildPart(){
@@ -1680,6 +1708,14 @@ function initM3D(){
     lcdMesh.scale.set(ax*2,bz*2,1);lcdMesh.position.set(M.partCX,0.02,M.partCZ);
     lcdMesh.material.opacity+=((on?0.92:0)-lcdMesh.material.opacity)*0.25;
     updateFEP(ax,bz);
+    // 4 cellules du bac + centre de gravité : sphère sur le fond du bac, à l'endroit où s'applique la charge
+    const CD=cellData();M.cells=CD;
+    if(cog&&CD){
+      const gx=(CD.cx-STATE.p.machine.vatW/2)*M.SC,gz=-(CD.cy-STATE.p.machine.vatH/2)*M.SC;
+      cog.position.set(gx,resinY+0.03,gz);cog.scale.setScalar(CD.valid?0.055:0.0001); // flotte au-dessus de la résine, bien visible
+      cog.material.color.set(CD.off>CD.thr?0xff5a5a:0xffe066);
+      cog.material.emissive.set(CD.off>CD.thr?0x5a1010:0x8a6a00);
+    }
   }
   // Déformation du film FEP : nappe pilotée par la force réelle (traction = bombe vers le haut,
   // compression/appui = s'enfonce), centrée sur la pièce. Montre en direct la flexion du film et son lien avec les courbes.
@@ -1737,6 +1773,8 @@ function initM3D(){
     if(M.primary&&ly>=M.primary.layer){al.style.display='block';al.textContent='→ '+T('carte mère : STOP couche {l} ({k})',{l:M.primary.layer+1,k:T(FLAGLAB[M.primary.kind]||M.primary.kind)});}
     else al.style.display='none';
     setTxt('m3dclock',fmt(M.tcur,1)+' / '+fmt(M.totalT,1)+' s');
+    const CD=M.cells;
+    setTxt('m3dcellscap',CD&&CD.valid?(CD.off>CD.thr?T('Charge décentrée')+' · '+T('décalage {d} mm',{d:fmt(CD.off,0)}):T('Charge centrée')):T('Centre de gravité'));
     const R=M.resin;
     if(R&&$('m3dresin')){
       const leak=R.leakDet?'<b style="color:#ff6b6b">'+T('Fuite détectée : ~{r} ml/h',{r:fmt(R.leakRate,0)})+'</b>':(R.leakRate>0?T('Fuite sous le seuil de détection'):T('Aucune fuite'));
@@ -1746,6 +1784,25 @@ function initM3D(){
     }
     drawLCD(ph,ly);
     drawScope();
+    drawCells();
+  }
+  // Vue de dessus du bac : 4 cellules (taille = charge) et croix du centre de gravité
+  function drawCells(){
+    const c=$('m3dcells');if(!c||!c.getContext)return;const g=c.getContext('2d'),W=c.width,H=c.height;
+    g.clearRect(0,0,W,H);g.fillStyle='#070a12';g.fillRect(0,0,W,H);
+    const CD=M.cells,pad=18,top=16,bw=W-2*pad,bh=H-top-pad;
+    g.strokeStyle='rgba(255,255,255,.22)';g.lineWidth=1;g.strokeRect(pad,top,bw,bh);
+    g.strokeStyle='rgba(255,255,255,.14)';g.beginPath();g.arc(pad+bw/2,top+bh/2,2,0,7);g.stroke();
+    const cp=[[pad,top+bh],[pad+bw,top+bh],[pad+bw,top],[pad,top]];                 // AvG, AvD, ArD, ArG
+    const mx=CD?Math.max(2,CD.af[0],CD.af[1],CD.af[2],CD.af[3]):2;
+    for(let i=0;i<4;i++){const f=CD?CD.f[i]:0,t=Math.min(1,Math.abs(f)/mx);
+      g.fillStyle='rgba('+Math.round(90+165*t)+','+Math.round(210-150*t)+','+Math.round(190-150*t)+',.92)';
+      g.beginPath();g.arc(cp[i][0],cp[i][1],4+6*t,0,7);g.fill();
+      g.fillStyle='#c6d0e4';g.font='9px ui-monospace,monospace';g.textAlign=(i===1||i===2)?'right':'left';g.textBaseline=(i>=2)?'top':'bottom';
+      g.fillText((CD?fmt(f,1):'—'),cp[i][0]+((i===1||i===2)?-8:8),cp[i][1]+((i>=2)?7:-7));}
+    if(CD&&CD.valid){const gx=pad+bw*CD.cx/CD.W,gy=top+bh*(1-CD.cy/CD.H),off=CD.off>CD.thr;
+      g.strokeStyle=off?'#ff5a5a':'#ffe066';g.lineWidth=1.8;g.beginPath();g.moveTo(gx-6,gy);g.lineTo(gx+6,gy);g.moveTo(gx,gy-6);g.lineTo(gx,gy+6);g.stroke();}
+    g.fillStyle='#9fb0d0';g.font='10px ui-monospace,monospace';g.textAlign='left';g.textBaseline='alphabetic';g.fillText(T('4 cellules du bac')+' (N)',4,11);
   }
   // Oscilloscope : courbes des capteurs sur une fenêtre glissante autour du curseur « maintenant »
   function drawScope(){
@@ -1830,6 +1887,7 @@ function initM3D(){
     setTxt('m3dhelp',T('Glisser pour tourner, molette pour zoomer.'));
     setTxt('m3dlayerlbl',T('Couche'));
     setTxt('m3dlcdcap',T('Écran LCD simulé'));
+    setTxt('m3dcellscap',T('Centre de gravité'));
     setTxt('m3dspeedlbl',T('Vitesse'));
     const sc=$('m3dscale');if(sc){sc.textContent=T(M.scaleFixed?'Échelle fixe':'Échelle auto');sc.classList.toggle('on',M.scaleFixed);}
     setTxt('m3drhlbl',T('Hauteur de résine'));setTxt('m3drllbl',T('Fuite'));
