@@ -126,6 +126,17 @@ withP({ pitchL: 50, dmax: 20, tol: 50 }, () => {
 });
 m.AB.n = 1;
 
+/* ---------- Impact de la collimation et machines du marché ---------- */
+{
+  const a = m.collPhys(1, 20, 1.0), b = m.collPhys(5, 20, 1.0), c = m.collPhys(10, 20, 1.0);
+  ok(a.edge < b.edge && b.edge < c.edge, 'le flou de bord croît avec la divergence');
+  ok(m.collPhys(5, 20, 0.4).edge < m.collPhys(5, 20, 2.0).edge, 'le flou de bord croît avec la distance');
+  near(m.collPhys(20, 5, 1.0).R, m.collPhys(5, 20, 1.0).R, 1e-9, 'une grille de 5° limite le cône comme une source de 5°');
+  ok(m.collPhys(20, 20, 0.4).edge - m.collPhys(0.2, 20, 0.4).edge < m.collPhys(20, 20, 2.0).edge - m.collPhys(0.2, 20, 2.0).edge, 'la collimation compte davantage quand la distance est grande');
+  ok(m.MACH.length === 3 && m.MACH.every(x => x.pitch >= 19 && x.pitch <= 30 && x.wl === 405 && x.div <= 5), 'trois machines du marché, pas de 19 à 30 µm, 405 nm, divergence ≤ 5°');
+  ok(m.MACH.every(x => x.pub && x.est), 'chaque machine distingue valeurs publiées et valeurs estimées');
+}
+
 /* ---------- Modèle 3D synthétique ---------- */
 const mesh = m.genDentalMesh('arch');
 ok(mesh && mesh.pos.length > 3000 && mesh.idx.length % 3 === 0, 'arcade dentaire synthétique générée (' + mesh.idx.length / 3 + ' triangles)');

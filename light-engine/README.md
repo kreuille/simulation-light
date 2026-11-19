@@ -36,6 +36,12 @@ Pour voir l'effet d'un changement matériel, par exemple deux machines avec le m
 
 Le verre ajouté est aussi réglable dans le groupe 2 (épaisseur, indice, diffusion), à 0 par défaut.
 
+### Machines du marché et impact de la collimation
+
+Le groupe 2 propose trois machines à lumière collimatée (Elegoo Saturn 4 Ultra 12K, Phrozen Sonic Mighty 8K, Anycubic Photon Mono M5s 12K) et des pas d'écran courants. Pour chaque machine, la note affiche **ce qui est publié** (pas, résolution, uniformité annoncée, angle annoncé pour l'Elegoo : moins de 5°) et **ce qui est estimé** (distance écran → résine, divergence quand elle n'est pas publiée). Les constructeurs ne publient pas la distance ni la divergence : ces valeurs sont des estimations à remplacer par vos mesures. Sources : fiches et revues citées par les pages produit des constructeurs, non vérifiées sur les fiches officielles.
+
+Le graphique « Impact de la collimation » trace le flou de bord en fonction de la divergence pour plusieurs distances ; le bouton « Ajouter l'écart de contour de la pièce » ajoute l'erreur de contour du modèle dentaire pour chaque divergence. Le tableau compare des grilles de collimation de 1° à 20° : rayon du cône, flou de bord et temps d'exposition relatif (une grille plus fermée réduit le flou mais coûte de la lumière).
+
 La compensation (mode « Machine learning » ou « Étape 3 / 4 ») modifie l'image projetée pour annuler une partie du flou. Le groupe 6 explore jusqu'où on peut éloigner le plan de polymérisation de l'écran LCD (≥ 1,5 mm) en restant proche de la précision du DLP.
 
 ## Procédures de mesure : renseigner les réglages avec des mesures réelles
