@@ -24,7 +24,7 @@ Les profils de machines et de résines du simulateur sont des valeurs indicative
 
 **Simulateur en ligne : https://kreuille.github.io/simulation-light/light-engine/simulateur/**
 
-Compare la précision de l'impression résine LCD (MSLA) et DLP sur une arcade dentaire synthétique ou un fichier STL, en carte de couleur 3D, avec compensation de l'image projetée, guide pas à pas et interface en français, anglais et chinois.
+Compare la précision de l'impression résine LCD (MSLA) et DLP sur une arcade dentaire synthétique ou un fichier STL, en carte de couleur 3D, avec compensation de l'image projetée, comparaison de deux réglages (par exemple avec ou sans verre sur l'écran), guide pas à pas et interface en français, anglais et chinois.
 
 | Dossier | Contenu |
 |---|---|

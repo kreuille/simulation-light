@@ -90,6 +90,42 @@ withP({ mlq: 0 }, () => near(m.mlFactor(1), 1, 1e-12, 'qualité ML 0 % : aucun g
 withP({ mlq: 100 }, () => near(m.mlFactor(1), 10.3 / 69.5, 1e-9, 'qualité ML 100 % : gain mesuré (σ = 1 px)'));
 withP({ mlq: 60 }, () => { const f = m.mlFactor(2); ok(f < 1 && f > 0, 'qualité ML intermédiaire : gain partiel'); });
 
+/* ---------- Verre ajouté sur l'écran et comparaison A/B ---------- */
+const base = { gap: 1.8, glass: 0, gn: 1.52, gs: 0.3, div: 8, wl: 405, blocker: 0.3 };
+withP({ dmax: 20 }, () => {
+  const a = m.physicsOf(base, 50), g = m.physicsOf(Object.assign({}, base, { glass: 1.1 }), 50);
+  near(a.R, 1800 * Math.tan(8 * Math.PI / 180) / 50, 1e-9, 'sans verre : rayon du cône inchangé');
+  near(g.R - a.R, 1100 * Math.tan(Math.asin(Math.sin(8 * Math.PI / 180) / 1.52)) / 50, 1e-9, 'le verre ajoute un cône réduit par la réfraction');
+  ok(g.R > a.R && g.sg > a.sg, 'avec verre : cône plus large et diffusion plus forte');
+  const hi = m.physicsOf(Object.assign({}, base, { glass: 1.1, gn: 1.9 }), 50), lo = m.physicsOf(Object.assign({}, base, { glass: 1.1, gn: 1.4 }), 50);
+  ok(hi.R < lo.R, 'un indice plus élevé redresse les rayons : cône plus étroit');
+  const nos = m.physicsOf(Object.assign({}, base, { glass: 1.1, gs: 0 }), 50);
+  near(nos.sg, a.sg, 1e-12, 'verre sans diffusion : même diffusion que sans verre');
+  withP({ glass: 0, gap: 1.8, div: 8, wl: 405, blocker: 0.3 }, () => near(m.physics(50).R, a.R, 1e-12, 'physics() sans verre = ancien modèle'));
+  withP({ glass: 2, glassN: 1.52, glassS: 0.3, gap: 1.8, div: 8, wl: 405, blocker: 0.3 }, () => ok(m.physics(50).R > a.R, 'physics() tient compte du verre principal'));
+});
+ok(m.abEdge(0, 0) === 0, 'flou de bord nul sans cône ni diffusion');
+ok(m.abEdge(100, 20) < m.abEdge(200, 20) && m.abEdge(200, 20) < m.abEdge(200, 80), 'le flou de bord croît avec le cône et la diffusion');
+near(m.abEdge(0, 50), 2 * 1.2816 * 50, 4, 'flou de bord d’une gaussienne seule : 2,56 σ');
+m.abExample();
+ok(m.AB.A.glass === 0 && m.AB.B.glass > 0, 'exemple A/B : sans verre contre avec verre');
+m.AB.n = 3;
+m.setPart('dent');
+withP({ pitchL: 50, dmax: 20, tol: 50 }, () => {
+  const half = 700, ma = m.abMap(m.AB.A, half), mb = m.abMap(m.AB.B, half);
+  let sum = 0; for (const v of ma.Z) sum += v;
+  near(sum * ma.cell * ma.cell / (150 * 150), 1, 0.03, 'l’énergie du pixel est conservée (bloc 3 × 3)');
+  const sa = m.abStats(ma, m.AB.A.dose), sb = m.abStats(mb, m.AB.B.dose);
+  ok(sa.peak <= 1 + 1e-9 && sb.peak <= sa.peak, 'intensité au centre ≤ 1, plus faible avec le verre');
+  ok(sb.edge > sa.edge && sb.out > sa.out, 'avec verre : bord plus flou et plus de lumière hors de la zone');
+  const pa = m.abPrint(m.AB.A), pb = m.abPrint(m.AB.B);
+  ok(pa.res.cured.length === m.N * m.N, 'motif imprimé calculé');
+  ok(pb.m.err >= pa.m.err - 0.2, 'avec verre, le motif n’est pas plus précis que sans verre');
+  const same = m.abPrint(m.AB.A);
+  ok(same.m.err === pa.m.err, 'calcul déterministe');
+});
+m.AB.n = 1;
+
 /* ---------- Modèle 3D synthétique ---------- */
 const mesh = m.genDentalMesh('arch');
 ok(mesh && mesh.pos.length > 3000 && mesh.idx.length % 3 === 0, 'arcade dentaire synthétique générée (' + mesh.idx.length / 3 + ' triangles)');
