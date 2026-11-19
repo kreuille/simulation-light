@@ -1,13 +1,17 @@
 /*
-  msla_detect — contrôle du bac avant impression, planéité, pesée, fuite
-  ----------------------------------------------------------------------
-  Portage de la logique embarquée du firmware (ckArm/ckUpdate/ckFinish/
-  planeiteFinish, pesée/répartition/fuite) en une classe réutilisable, en flux,
-  qui renvoie des verdicts sous forme de structs au lieu d'écrire sur le port série.
-  C'est la référence canonique : le firmware formate ses messages à partir d'ici.
+  msla_detect — vat control before a print, planarity, weigh, leak
+  ----------------------------------------------------------------
+  Port of the embedded firmware logic (ckArm/ckUpdate/ckFinish/planeiteFinish,
+  weigh/share/leak) into a reusable streaming class that returns verdicts as structs
+  instead of a write to the serial port. This is the canonical reference: the
+  firmware formats its messages from here.
 
-  float (comme le firmware) pour rester identique à l'embarqué, sauf l'accumulateur
-  de maintien en double. Aucune allocation dynamique, aucune dépendance Arduino.
+  float (like the firmware) to stay identical to the embedded code, except the hold
+  accumulator in double. No dynamic memory, no Arduino dependency.
+
+  中文：打印前料槽检查、平面度、称重、漏液。把固件内嵌逻辑移植为可复用的流式类，判定以结构体
+  返回而非直接写串口；此为权威参考，固件据此格式化消息。用 float（与固件一致），保持等待累加器为
+  double；无动态内存，不依赖 Arduino。
 */
 #ifndef MSLA_BAC_H
 #define MSLA_BAC_H
@@ -16,26 +20,26 @@
 
 namespace msla {
 
-#define MSLA_CK_BINS 61     // 0 à 3 mm au-dessus de l'arrêt, pas de 0,05 mm
-#define MSLA_CK_BUF  1600   // 20 s de descente à 80 mesures/s
-#define MSLA_CK_HB   64     // fenêtre glissante de fin de maintien
+#define MSLA_CK_BINS 61     // 0 to 3 mm above the stop, step of 0.05 mm
+#define MSLA_CK_BUF  1600   // 20 s of descent at 80 samples/s
+#define MSLA_CK_HB   64     // sliding window at the end of the hold
 
-// Référence enregistrée sur bac propre (persistée par le firmware).
+// Reference recorded on a clean vat (kept by the firmware).
 struct BacRef {
-  uint32_t magic;                        // 0xB4C0 quand valide
+  uint32_t magic;                        // 0xB4C0 when valid
   float    curve[5][MSLA_CK_BINS];
   float    stat[5];
 };
 static const uint32_t MSLA_REF_MAGIC = 0xB4C0;
 
 struct BacConfig {
-  int   nCells;    // 1 (bras Z seul) ou 5 (bras Z + 4 coins)
-  float holdS;     // durée du maintien en bas attendue (s)
-  float ckStatN;   // seuil d'appui statique (N)
-  float ckDescN;   // seuil d'écart pendant la descente (N)
-  float vatW, vatH;// dimensions du bac entre cellules (mm)
-  float zMaxN;     // force maximale du moteur Z (N)
-  float layerMm;   // épaisseur de la première couche (mm)
+  int   nCells;    // 1 (Z arm only) or 5 (Z arm + 4 corners)
+  float holdS;     // expected bottom hold time (s)
+  float ckStatN;   // static push threshold (N)
+  float ckDescN;   // descent deviation threshold (N)
+  float vatW, vatH;// vat dimensions between the cells (mm)
+  float zMaxN;     // maximum Z motor force (N)
+  float layerMm;   // first layer thickness (mm)
 };
 
 enum BacMode { BAC_MODE_CONTROLE = 0, BAC_MODE_REFERENCE = 1, BAC_MODE_PLANEITE = 2 };
@@ -44,49 +48,49 @@ enum BacEvent { BAC_RAS, BAC_EV_CONTROLE, BAC_EV_PLANEITE, BAC_EV_REFERENCE };
 enum BacRisque { RISQUE_AUCUN, RISQUE_MODERE, RISQUE_ELEVE, RISQUE_DANGER };
 
 struct ControleResultat {
-  bool    erreur;        // maintien trop court pour conclure
-  bool    maintienCourt; // maintien réel plus court que holdS (analyse quand même)
+  bool    erreur;        // hold too short to conclude
+  bool    maintienCourt; // real hold shorter than holdS (analyzed anyway)
   float   maintienReel;  // s
-  bool    residu;        // true = résidu vu
+  bool    residu;        // true = debris seen
   float   appui;         // N
-  bool    contact;       // contact détecté pendant la descente
-  float   zContact;      // mm au-dessus de l'arrêt
+  bool    contact;       // contact detected during the descent
+  float   zContact;      // mm above the stop
   float   epaisseur;     // zContact + layerMm
-  bool    position;      // position estimée disponible (5 cellules)
+  bool    position;      // estimated position available (5 cells)
   float   px, py;        // mm
   BacRisque risque;
-  bool    hasRef;        // une référence valide a servi
+  bool    hasRef;        // a valid reference was used
 };
 
-struct ReferenceResultat { float appuiRef; };   // stat[0] enregistré
+struct ReferenceResultat { float appuiRef; };   // recorded stat[0]
 
 struct PlaneiteResultat {
-  bool  atteint5N;       // la somme des 4 cellules a atteint 5 N
-  float dx, dy;          // décalage du centre d'effort à 5 N (mm)
-  float zA5N;            // hauteur au-dessus de l'arrêt où 5 N est atteint (mm)
+  bool  atteint5N;       // the sum of the 4 cells reached 5 N
+  float dx, dy;          // shift of the force center at 5 N (mm)
+  float zA5N;            // height above the stop where 5 N is reached (mm)
 };
 
-// Contrôleur de bac en flux. Une instance (globale dans le firmware).
+// Streaming vat controller. One instance (global in the firmware).
 class BacControleur {
  public:
   BacControleur() : ck_(CK_OFF), ckMode_(0), ref_(nullptr) {}
 
-  // Arme le contrôleur pour le prochain test. ref peut être nullptr (pas de référence).
+  // Arms the controller for the next test. ref can be nullptr (no reference).
   BacArm armer(int mode, const BacConfig& cfg, BacRef* ref);
 
-  // Un échantillon de mesure (t en s, z en mm, f[5] en N, uv allumé ?).
-  // Renvoie un événement non nul quand un verdict vient d'être produit.
+  // One measurement sample (t in s, z in mm, f[5] in N, uv on?).
+  // Returns a non-zero event when a verdict was just produced.
   BacEvent maj(float t, float z, const float f[5], bool uv);
 
   bool actif() const { return ck_ != CK_OFF; }
   int  mode()  const { return ckMode_; }
-  void desarmer() { ck_ = CK_OFF; }     // annule un test en cours
+  void desarmer() { ck_ = CK_OFF; }     // cancels a test in progress
 
   const ControleResultat&  controle()  const { return resCtrl_; }
   const ReferenceResultat& reference() const { return resRef_; }
   const PlaneiteResultat&  planeite()  const { return resPlan_; }
 
-  // Avertissement « maintien plus court que prévu » du dernier verdict.
+  // "Hold shorter than expected" warning of the last verdict.
   bool  maintienCourt() const { return maintienCourt_; }
   float maintienReel()  const { return maintienReel_; }
 
@@ -112,7 +116,7 @@ class BacControleur {
   float hT_[MSLA_CK_HB];
   float hF_[MSLA_CK_HB][5];
   int   hHead_ = 0, hCount_ = 0;
-  bool  maintienCourt_ = false;   // mémorisé entre maj() et finir()
+  bool  maintienCourt_ = false;   // kept between maj() and finir()
   float maintienReel_ = 0;
 
   ControleResultat  resCtrl_{};
@@ -120,30 +124,30 @@ class BacControleur {
   PlaneiteResultat  resPlan_{};
 };
 
-/* ---------- Pesée du bac et de la résine (analyse pure, 4 coins) ---------- */
-static const float MSLA_GN = 0.00980665f;   // newtons par gramme
+/* ---------- Vat and resin weigh (pure analysis, 4 corners) ---------- */
+static const float MSLA_GN = 0.00980665f;   // newtons per gram
 
 struct PeseeConfig { float vatW, vatH; };
-// Référence : poids du bac vide, répartition par coin, densité de la résine.
+// Reference: empty vat weight, share per corner, resin density.
 struct PeseeRef { float vatG; float share[4]; float density; };
 
 struct PeseeResultat {
   bool  present;
   float total;        // g
-  float sh[4];        // répartition mesurée
-  float dev;          // écart maximal à la répartition de référence
-  int   coinFaible;   // coin le moins chargé (-1 si bac absent)
-  bool  malPose;      // dev > 0,06 et coin < 12 %
-  float cx, cy, off;  // position estimée (mm) et décalage au centre
-  bool  decale;       // off > 3 mm (si pas mal posé)
-  bool  resineConnue; // vatG connu
+  float sh[4];        // measured share
+  float dev;          // maximum deviation from the reference share
+  int   coinFaible;   // least loaded corner (-1 if no vat)
+  bool  malPose;      // dev > 0.06 and corner < 12 %
+  float cx, cy, off;  // estimated position (mm) and center offset
+  bool  decale;       // off > 3 mm (if not badly placed)
+  bool  resineConnue; // vatG known
   float resineMl;
 };
-// g[4] : grammes par coin (avant G, avant D, arrière D, arrière G).
+// g[4] : grams per corner (front-L, front-R, rear-R, rear-L).
 PeseeResultat analysePesee(const float g[4], const PeseeConfig& cfg, const PeseeRef& ref);
 
 struct FuiteResultat { float lost; float rate; bool fuiteProbable; };
-// m0, m1 : masse totale (g) avant/après ; minutes : durée de la mesure.
+// m0, m1 : total mass (g) before/after; minutes : duration of the measurement.
 FuiteResultat analyseFuite(float m0, float m1, float density, float minutes);
 
 }  // namespace msla

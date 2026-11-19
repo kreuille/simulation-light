@@ -1,18 +1,23 @@
 /*
-  msla_detect — détection des pannes en cours d'impression (apprentissage par couche)
-  -----------------------------------------------------------------------------------
-  Portage fidèle des fonctions features/detect/verdict du simulateur.
+  msla_detect — in-print fault detection (per-layer learning)
+  -----------------------------------------------------------
+  Faithful port of the features/detect/verdict functions of the simulator.
 
-  Principe : pour chaque couche on extrait des « features » (pic d'arrachement,
-  compression à la descente, appui résiduel, course au pic). On apprend le niveau
-  normal sur les 6 dernières couches saines, puis on signale toute couche qui s'en
-  écarte (arrachement trop faible, obstacle, blocage, appui, film détendu).
+  Principle: for each layer the code extracts "features" (peel peak, descent
+  compression, residual push, travel at the peak). It learns the normal level from
+  the last 6 good layers, then it flags any layer that moves away from it (peel too
+  low, obstacle, block, push, loose film).
 
-  Entrées : séries échantillonnées (tableaux parallèles fournis par l'appelant).
-  Sorties : un jeu de drapeaux par couche, puis un verdict (première couche en
-  défaut, nature, nombre de fausses alertes, latence).
+  Inputs: sampled series (parallel arrays supplied by the caller).
+  Outputs: a set of flags per layer, then a verdict (first faulty layer, kind,
+  number of false alarms, latency).
 
-  double partout, aucune allocation dynamique, aucune dépendance Arduino.
+  double everywhere, no dynamic memory, no Arduino dependency.
+
+  中文：打印中故障检测（逐层学习）。忠实移植模拟器的 features/detect/verdict。
+  每层提取特征（剥离峰值、下降压缩、残余受力、峰值处行程），用最近 6 个正常层学习正常
+  水平，再标记偏离的层（剥离过弱、障碍、卡住、受力、离型膜松弛）。输入为采样序列，输出为
+  每层的标志及判定。全部 double，无动态内存，不依赖 Arduino。
 */
 #ifndef MSLA_COUCHE_H
 #define MSLA_COUCHE_H
@@ -22,98 +27,98 @@
 namespace msla {
 
 #ifndef MSLA_MAX_COUCHES
-#define MSLA_MAX_COUCHES 256   // nombre maximal de couches géré sans allocation
+#define MSLA_MAX_COUCHES 256   // maximum number of layers handled without allocation
 #endif
 
-// Valeur « absente » (équivalent du null JS). Testée par estAbsent().
+// "Absent" value (equivalent of the JavaScript null). Tested by estAbsent().
 double absente();
 bool   estAbsent(double v);
 
-// Phases d'un échantillon (telles qu'émises par le simulateur et le firmware) :
-//   0 = attente en haut / avant descente     1 = arrachement (remontée)
-//   2 = descente                             3 = exposition (maintien en haut)
-//   4 = maintien en bas
-// La couche (ly) vaut -1 hors d'une couche identifiée.
+// Phases of a sample (as sent by the simulator and the firmware):
+//   0 = top wait / before descent          1 = peel (up move)
+//   2 = descent                            3 = exposure (top hold)
+//   4 = bottom hold
+// The layer (ly) is -1 outside an identified layer.
 
-// Série échantillonnée : tableaux parallèles de n cases, propriété de l'appelant.
+// Sampled series: parallel arrays of n cells, owned by the caller.
 struct Serie {
-  const double* t;    // temps (s)
-  const double* f;    // force déjà filtrée (voir prep())
-  const double* z;    // position Z (mm)
+  const double* t;    // time (s)
+  const double* f;    // force already filtered (see prep())
+  const double* z;    // Z position (mm)
   const int*    ph;   // phase 0..4
-  const int*    ly;   // index de couche, ou -1
+  const int*    ly;   // layer index, or -1
   int n;
 };
 
-// Features d'une couche. Un champ « absent » (NaN) signifie « non mesuré ».
+// Features of a layer. An "absent" field (NaN) means "not measured".
 struct Feature {
-  double peak;    // pic d'arrachement (force max en phase 1, au-dessus de la tare haute)
-  double comp;    // compression min (phase 2, ou phases 0/4 de la couche suivante)
-  double travel;  // Z atteint au pic
-  double stat;    // appui statique (différence de fin d'exposition entre couches successives)
-  int    iPeak;   // index d'échantillon du pic (-1 si absent)
-  int    iComp;   // index d'échantillon de la compression (-1 si absent)
+  double peak;    // peel peak (max force in phase 1, above the top tare)
+  double comp;    // min compression (phase 2, or phases 0/4 of the next layer)
+  double travel;  // Z reached at the peak
+  double stat;    // static push (end-of-exposure difference between successive layers)
+  int    iPeak;   // sample index of the peak (-1 if absent)
+  int    iComp;   // sample index of the compression (-1 if absent)
 };
 
-// Drapeaux d'une couche, dans l'ordre d'apparition du simulateur.
+// Flags of a layer, in the order of the simulator.
 enum Flag { F_NODATA = 0, F_CRASH, F_OBSTACLE, F_APPUI, F_FAIBLE, F_FEP };
 struct LayerFlags {
-  uint8_t n;       // nombre de drapeaux
-  Flag    f[4];    // drapeaux ordonnés
+  uint8_t n;       // number of flags
+  Flag    f[4];    // ordered flags
 };
 
-// Seuils planancher par capteur (FLOOR du simulateur).
+// Floor thresholds per sensor (FLOOR of the simulator).
 struct Floor { double p, c, s; bool sNull; };
 Floor floorPour(const char* key);   // "z","fus","vat","sg"
 
-// prep() : construit la force filtrée ff à partir de la force brute f.
-//   med = true  -> ff = med3(f)        (sinon copie de f)
+// prep(): builds the filtered force ff from the raw force f.
+//   med = true  -> ff = med3(f)        (else a copy of f)
 //   avg = true  -> ff = moy_glissante(ff, 3)
-// ff et scratch : tampons de n cases fournis par l'appelant (scratch peut == nullptr si !avg&&!med).
+// ff and scratch: buffers of n cells from the caller (scratch can be nullptr if !avg&&!med).
 void prep(const double* f, int n, bool med, bool avg, double* ff, double* scratch);
 
-// features() : remplit out[0..nLayers) à partir de la série s.
-//   scratch / scratchLen : espace de travail d'au moins la taille du plus grand
-//   groupe (phase, couche) ; en pratique passer un tampon de taille s.n suffit.
+// features(): fills out[0..nLayers) from the series s.
+//   scratch / scratchLen: work space of at least the size of the largest
+//   (phase, layer) group; in practice a buffer of size s.n is enough.
 void features(const Serie& s, int nLayers, Feature* out,
               double* scratch, int scratchLen);
 
-// detect() : apprentissage par couche. Remplit flags[0..nLayers).
-//   area    : surface par couche (cm²), nLayers cases
+// detect(): per-layer learning. Fills flags[0..nLayers).
+//   area    : area per layer (cm²), nLayers cells
 //   key     : "z","fus","vat","sg"
-//   nm      : niveau de bruit adapté (noise * resFactor, ou noise pour "sg")
-//   obstacleMul, lowRatio : paramètres de l'application (APPS)
-//   fstall  : force de blocage du moteur (N)
+//   nm      : adapted noise level (noise * resFactor, or noise for "sg")
+//   obstacleMul, lowRatio : application parameters (APPS)
+//   fstall  : motor block force (N)
 void detect(const Feature* feat, const double* area, int nLayers,
             const char* key, double nm, double obstacleMul, double lowRatio,
             double fstall, LayerFlags* flags);
 
-// Verdict d'une série de drapeaux.
+// Verdict of a set of flags.
 struct Verdict {
-  int  first;      // première couche en défaut (>= start), -1 si aucune
-  Flag kind;       // nature du premier défaut
-  int  fa;         // fausses alertes (couches en défaut avant start)
-  int  nodata;     // couches sans données
-  int  lat;        // latence (first - start), -1 si first == -1
+  int  first;      // first faulty layer (>= start), -1 if none
+  Flag kind;       // kind of the first fault
+  int  fa;         // false alarms (faulty layers before start)
+  int  nodata;     // layers with no data
+  int  lat;        // latency (first - start), -1 if first == -1
   bool hasFirst;
 };
 
-// scen : "normal","detach","support","residue","fep" (table TRIGGER).
+// scen : "normal","detach","support","residue","fep" (TRIGGER table).
 // start = (scen=="normal") ? nLayers : L.
 Verdict verdict(const LayerFlags* flags, int nLayers, const char* scen, int L);
 
-/* ================= Détection en flux (pour le firmware) ================= */
-// Versions incrémentales de features/detect, pour tourner en direct couche par
-// couche sans tout bufferiser. Elles produisent des résultats IDENTIQUES aux
-// versions batch (validé par parité).
+/* ================= Streaming detection (for the firmware) ================= */
+// Incremental versions of features/detect, to run live layer by layer without a
+// full buffer. They give results IDENTICAL to the batch versions (checked by parity).
+//
+// 中文：流式检测（供固件）。features/detect 的增量版本，逐层实时运行，结果与批处理版本完全一致。
 
 #ifndef MSLA_SUIVI_BUF
-#define MSLA_SUIVI_BUF 1024   // échantillons bufferisés par couche pour les médianes (ph0, ph3)
+#define MSLA_SUIVI_BUF 1024   // samples buffered per layer for the medians (ph0, ph3)
 #endif
 
-// DetecteurCouche : apprentissage par couche en flux. On lui pousse les Feature
-// finalisées dans l'ordre croissant ; il renvoie les drapeaux de chaque couche,
-// identiques à detect().
+// DetecteurCouche: streaming per-layer learning. Push the finalized Feature values
+// in increasing order; it returns the flags of each layer, identical to detect().
 class DetecteurCouche {
  public:
   void init(const char* key, double nm, double obstacleMul, double lowRatio, double fstall);
@@ -123,20 +128,20 @@ class DetecteurCouche {
   Floor  fl_{};
   bool   isSg_ = false;
   double nm_ = 0, obstacleMul_ = 0, lowRatio_ = 0, fstall_ = 0;
-  Feature gFeat_[6]; double gArea_[6]; int gN_ = 0;   // fenêtre des 6 dernières bonnes couches
-  Feature sFeat_[4]; double sArea_[4]; int sN_ = 0;   // série « faible » en attente (ré-apprentissage)
+  Feature gFeat_[6]; double gArea_[6]; int gN_ = 0;   // window of the last 6 good layers
+  Feature sFeat_[4]; double sArea_[4]; int sN_ = 0;   // pending FAIBLE run (relearning)
 };
 
-// SuiviCouches : construit les Feature couche par couche à partir du flux
-// d'échantillons (force filtrée ff, position z, phase ph, couche ly), dans
-// l'ordre du simulateur (bloc 4→0→1→3→2). pousser() renvoie l'index de la couche
-// qui vient d'être finalisée (et remplit *out), ou -1 sinon. terminer() finalise
-// la dernière couche en cours. Résultats identiques à features().
+// SuiviCouches: builds the Feature values layer by layer from the stream of samples
+// (filtered force ff, position z, phase ph, layer ly), in the order of the simulator
+// (block 4→0→1→3→2). pousser() returns the index of the layer that was just
+// finalized (and fills *out), or -1. terminer() finalizes the last open layer.
+// Results identical to features().
 class SuiviCouches {
  public:
   void init();
-  // area = aire exposée de la couche ly (mm²). Quand une couche est finalisée, son
-  // aire est renvoyée dans *outArea (aire de la couche finalisée, pas de la courante).
+  // area = exposed area of the layer ly (mm²). When a layer is finalized, its area
+  // is returned in *outArea (area of the finalized layer, not of the current one).
   int  pousser(double ff, double z, int ph, int ly, double area, Feature* out, double* outArea);
   int  terminer(Feature* out, double* outArea);
  private:
@@ -149,7 +154,7 @@ class SuiviCouches {
     double comp = 0; bool hasComp = false;
   };
   Acc  acc_[3];
-  Acc* slotPour(int ly);          // existant ou nouveau
+  Acc* slotPour(int ly);          // existing or new
   Acc* slotExistant(int ly);
   void ensurePre(Acc* a);
   void ensureTop(Acc* a);

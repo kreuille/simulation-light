@@ -10,13 +10,13 @@ double absente() { return NAN; }
 bool   estAbsent(double v) { return std::isnan(v); }
 
 Floor floorPour(const char* key) {
-  // FLOOR du simulateur : {p: pic, c: compression, s: appui}
+  // FLOOR of the simulator: {p: peak, c: compression, s: push}
   if (!std::strcmp(key, "vat")) return {2.0, 2.5, 1.0, false};
   if (!std::strcmp(key, "sg"))  return {10.0, 12.0, 0.0, true};   // s = null
-  return {0.4, 0.8, 0.25, false};                                 // "z" et "fus"
+  return {0.4, 0.8, 0.25, false};                                 // "z" and "fus"
 }
 
-// Médiane destructive sur un tampon (le tri est fait sur place).
+// Destructive median on a buffer (the sort is done in place).
 static double medSortInPlace(double* b, int n) {
   if (n <= 0) return 0.0;
   std::sort(b, b + n);
@@ -43,13 +43,13 @@ void features(const Serie& s, int nLayers, Feature* out,
   }
   const double* f = s.f;
 
-  // tare par couche : moyenne (médiane) en exposition (ph 3) et avant descente (ph 0)
+  // per-layer tare: median at the exposure (ph 3) and before the descent (ph 0)
   for (int L = 0; L < nLayers; L++) {
-    // top[L] = médiane de toutes les valeurs ph==3 de la couche L
+    // top[L] = median of all the ph==3 values of layer L
     int c = 0;
     for (int k = 0; k < s.n; k++) if (s.ly[k] == L && s.ph[k] == 3) scratch[c++] = f[k];
     if (c) top[L] = medSortInPlace(scratch, c);
-    // pre[L] = médiane des 30 % derniers échantillons ph==0 de la couche L
+    // pre[L] = median of the last 30% of the ph==0 samples of layer L
     c = 0;
     for (int k = 0; k < s.n; k++) if (s.ly[k] == L && s.ph[k] == 0) scratch[c++] = f[k];
     if (c) {
@@ -57,11 +57,11 @@ void features(const Serie& s, int nLayers, Feature* out,
       pre[L] = medSortInPlace(scratch + start, c - start);
     }
   }
-  // appui statique : écart de fin d'exposition entre deux couches successives
+  // static push: end-of-exposure difference between two successive layers
   for (int L = 0; L + 1 < nLayers; L++)
     if (!estAbsent(pre[L + 1]) && !estAbsent(pre[L])) out[L].stat = pre[L + 1] - pre[L];
 
-  // pic d'arrachement (ph 1) et compression (ph 2, ou ph 0/4 de la couche suivante)
+  // peel peak (ph 1) and compression (ph 2, or ph 0/4 of the next layer)
   for (int k = 0; k < s.n; k++) {
     const int L = s.ly[k], ph = s.ph[k];
     if (L < 0 || L >= nLayers) continue;
@@ -122,7 +122,7 @@ void detect(const Feature* feat, const double* area, int nLayers,
     if (expP > 2 * fl.p * nm && ft.peak < lowRatio * expP - 0.5 * fl.p * nm) {
       pushFlag(flags[i], F_FAIBLE); bad = true;
     }
-    // film détendu : course au pic nettement plus longue que sur les grosses couches saines
+    // loose film: travel at the peak clearly longer than on the big good layers
     double tmpT[6]; int mb = 0;
     for (int r = recStart; r < nGood; r++) {
       const int j = good[r];
@@ -141,7 +141,7 @@ void detect(const Feature* feat, const double* area, int nLayers,
   }
 }
 
-// Table TRIGGER : les drapeaux qui comptent comme « panne » selon le scénario.
+// TRIGGER table: the flags that count as a "fault" for each scenario.
 static bool dansTrigger(const char* scen, Flag f) {
   if (!std::strcmp(scen, "normal")) return false;
   if (!std::strcmp(scen, "detach"))  return f == F_FAIBLE || f == F_OBSTACLE || f == F_CRASH || f == F_APPUI;
@@ -151,7 +151,7 @@ static bool dansTrigger(const char* scen, Flag f) {
   return false;
 }
 
-/* ================= DetecteurCouche (apprentissage par couche en flux) ================= */
+/* ================= DetecteurCouche (streaming per-layer learning) ================= */
 void DetecteurCouche::init(const char* key, double nm, double obstacleMul, double lowRatio, double fstall) {
   fl_ = floorPour(key);
   isSg_ = !std::strcmp(key, "sg");
@@ -197,7 +197,7 @@ LayerFlags DetecteurCouche::pousser(const Feature& ft, double area) {
   return lf;
 }
 
-/* ================= SuiviCouches (construction des Feature en flux) ================= */
+/* ================= SuiviCouches (streaming Feature build) ================= */
 void SuiviCouches::init() { for (int i = 0; i < 3; i++) acc_[i].ly = -1; }
 
 SuiviCouches::Acc* SuiviCouches::slotExistant(int ly) {
@@ -213,13 +213,13 @@ SuiviCouches::Acc* SuiviCouches::slotPour(int ly) {
     a->pre = a->top = 0; a->peak = a->travel = a->comp = 0; a->hasPeak = a->hasComp = false;
     return a;
   }
-  return &acc_[0];   // ne devrait pas arriver (au plus 2 couches ouvertes)
+  return &acc_[0];   // should not happen (at most 2 open layers)
 }
 void SuiviCouches::liberer(Acc* a) { a->ly = -1; }
 
-// Ajoute une valeur à un tampon glissant qui conserve au plus MSLA_SUIVI_BUF dernières
-// valeurs. n compte TOUJOURS le total poussé (pas seulement le nombre retenu) : la
-// fenêtre « derniers 30 % » a besoin du total exact.
+// Adds a value to a sliding buffer that keeps at most MSLA_SUIVI_BUF last values.
+// n ALWAYS counts the total pushed (not only the kept count): the "last 30%" window
+// needs the exact total.
 static void pushGliss(double* buf, int& n, double v) {
   if (n < MSLA_SUIVI_BUF) buf[n] = v;
   else { for (int i = 1; i < MSLA_SUIVI_BUF; i++) buf[i - 1] = buf[i]; buf[MSLA_SUIVI_BUF - 1] = v; }
@@ -233,7 +233,7 @@ void SuiviCouches::ensurePre(Acc* a) {
     int count = a->preN - start;
     const int retained = a->preN < MSLA_SUIVI_BUF ? a->preN : MSLA_SUIVI_BUF;
     if (count > retained) count = retained;
-    a->pre = medSortInPlace(&a->preBuf[retained - count], count);   // médiane des derniers 30 %
+    a->pre = medSortInPlace(&a->preBuf[retained - count], count);   // median of the last 30%
   } else a->pre = 0;
   a->preFait = true;
 }
@@ -274,7 +274,7 @@ int SuiviCouches::pousser(double ff, double z, int ph, int ly, double area, Feat
   return emis;
 }
 int SuiviCouches::terminer(Feature* out, double* outArea) {
-  // finalise la couche ouverte d'index le plus petit (dans l'ordre)
+  // finalize the open layer with the smallest index (in order)
   int best = -1; Acc* ba = nullptr;
   for (int i = 0; i < 3; i++) if (acc_[i].ly >= 0 && (best < 0 || acc_[i].ly < best)) { best = acc_[i].ly; ba = &acc_[i]; }
   if (!ba) return -1;

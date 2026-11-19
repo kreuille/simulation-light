@@ -4,9 +4,9 @@
 namespace msla {
 
 double mediane(const double* a, int n, double* scratch) {
-  if (n <= 0) return 0.0;                 // median([]) == 0 dans le simulateur
+  if (n <= 0) return 0.0;                 // median([]) == 0 in the simulator
   for (int i = 0; i < n; i++) scratch[i] = a[i];
-  std::sort(scratch, scratch + n);        // tri croissant, comme (x,y)=>x-y
+  std::sort(scratch, scratch + n);        // ascending sort, like (x,y)=>x-y
   const int m = n >> 1;
   return (n & 1) ? scratch[m] : (scratch[m - 1] + scratch[m]) / 2.0;
 }
@@ -17,7 +17,7 @@ void med3(const double* in, double* out, int n) {
   if (n > 1) out[n - 1] = in[n - 1];
   for (int i = 1; i < n - 1; i++) {
     const double x = in[i - 1], y = in[i], z = in[i + 1];
-    // médiane de 3 = max(min(x,y), min(max(x,y), z))
+    // median of 3 = max(min(x,y), min(max(x,y), z))
     const double mnxy = x < y ? x : y;
     const double mxxy = x < y ? y : x;
     const double mnmxz = mxxy < z ? mxxy : z;

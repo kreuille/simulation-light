@@ -51,7 +51,7 @@ void stability(const Serie& s, const char* key, const StabOpt& opt,
     else if (ph == 3)       { if (rtA[L] < 0) rtA[L] = k; rtB[L] = k; }
   }
 
-  // analyse : trouve le premier instant où la pente reste sous le seuil nH fois de suite
+  // analyse: finds the first instant where the slope stays below the threshold nH times in a row
   auto analyse = [&](int a, int b, double t0, bool hasSig, double sigIn) -> Settle {
     const int len = b - a + 1;
     double sig = hasSig ? sigIn : (len >= 3 ? resStd(s.t, s.f, b - std::min(len, nW * 2) + 1, b) : 0.0);

@@ -14,8 +14,8 @@ BacArm BacControleur::armer(int mode, const BacConfig& cfg, BacRef* ref) {
   holdN_ = 0;
   for (int i = 0; i < 5; i++) holdAcc_[i] = 0;
   maintienCourt_ = false; maintienReel_ = 0;
-  // Remarque : vHist (vitesse) n'est pas remis à zéro, comme dans le firmware :
-  // l'estimation de vitesse se poursuit d'un test au suivant.
+  // Note: vHist (velocity) is not reset, like in the firmware: the velocity
+  // estimation continues from one test to the next.
   if (mode == BAC_MODE_PLANEITE && cfg_.nCells != 5) {
     ck_ = CK_OFF;
     return BAC_ARM_ERR_PLANEITE_CELLS;
@@ -27,7 +27,7 @@ BacEvent BacControleur::maj(float t, float z, const float f[5], bool uv) {
   if (ck_ == CK_OFF) return BAC_RAS;
   vHistT_[vIdx_] = t; vHistZ_[vIdx_] = z; vIdx_ = (vIdx_ + 1) % 9; if (vCount_ < 9) vCount_++;
   if (vCount_ < 9) return BAC_RAS;
-  const int old = vIdx_;   // le plus ancien des 9
+  const int old = vIdx_;   // the oldest of the 9
   const float dt = t - vHistT_[old];
   const float v = dt > 0 ? (z - vHistZ_[old]) / dt : 0;   // mm/s
 
@@ -49,7 +49,7 @@ BacEvent BacControleur::maj(float t, float z, const float f[5], bool uv) {
   if (ck_ == CK_HOLD) {
     const float h = t - tStop_;
     const bool ended = uv || std::fabs(v) > 0.05f || h > cfg_.holdS;
-    if (!ended && h >= 1.0f) {   // fenêtre glissante des 0,6 dernières secondes
+    if (!ended && h >= 1.0f) {   // sliding window of the last 0.6 seconds
       hT_[hHead_] = t;
       for (int c = 0; c < 5; c++) hF_[hHead_][c] = c < cfg_.nCells ? f[c] : 0;
       hHead_ = (hHead_ + 1) % MSLA_CK_HB; if (hCount_ < MSLA_CK_HB) hCount_++;
@@ -74,7 +74,7 @@ BacEvent BacControleur::maj(float t, float z, const float f[5], bool uv) {
 
 BacEvent BacControleur::finir() {
   const int nch = cfg_.nCells;
-  // tare dans la résine : moyenne autour de zStop + 3 mm, pendant la descente
+  // tare in the resin: average around zStop + 3 mm, during the descent
   float tare[5] = {0, 0, 0, 0, 0}; int tn = 0;
   for (int n = 0; n < bn_; n++) {
     const int k = bidx(n); const float d = bz_[k] - zStop_;
@@ -93,7 +93,7 @@ BacEvent BacControleur::finir() {
   resCtrl_.maintienReel = maintienReel_;
   if (holdN_ < 10) { resCtrl_.erreur = true; ck_ = CK_OFF; return BAC_EV_CONTROLE; }
 
-  // courbe de descente par tranches de 0,05 mm
+  // descent curve in 0.05 mm bins
   float curve[5][MSLA_CK_BINS]; int cnt[MSLA_CK_BINS];
   for (int b = 0; b < MSLA_CK_BINS; b++) { cnt[b] = 0; for (int c = 0; c < 5; c++) curve[c][b] = 0; }
   for (int n = 0; n < bn_; n++) {
@@ -118,7 +118,7 @@ BacEvent BacControleur::finir() {
   }
 
   const bool hasRef = ref_ && ref_->magic == MSLA_REF_MAGIC;
-  // contact pendant la descente : 2 tranches consécutives sous le seuil, en partant du haut
+  // contact during the descent: 2 consecutive bins below the threshold, from the top
   float zContact = -1; int run = 0;
   for (int b = MSLA_CK_BINS - 1; b >= 1; b--) {
     const float r = (hasRef && !std::isnan(ref_->curve[0][b])) ? ref_->curve[0][b] : 0;
@@ -151,7 +151,7 @@ void BacControleur::finirPlaneite(const float tare[5]) {
     const int k = bidx(n); float d[4], S = 0;
     for (int c = 0; c < 4; c++) { d[c] = bf_[k][c + 1] - tare[c + 1]; S += d[c]; }
     if (std::fabs(S) >= 5.0f) {
-      // moyenne sur les 16 mesures suivantes pour réduire le bruit
+      // average over the next 16 samples to reduce the noise
       float a[4] = {0, 0, 0, 0}; int m = 0;
       for (int j = n; j < bn_ && m < 16; j++, m++) { const int kk = bidx(j); for (int c = 0; c < 4; c++) a[c] += bf_[kk][c + 1] - tare[c + 1]; }
       S = a[0] + a[1] + a[2] + a[3];
