@@ -38,6 +38,20 @@ Le verre ajouté est aussi réglable dans le groupe 2 (épaisseur, indice, diffu
 
 La compensation (mode « Machine learning » ou « Étape 3 / 4 ») modifie l'image projetée pour annuler une partie du flou. Le groupe 6 explore jusqu'où on peut éloigner le plan de polymérisation de l'écran LCD (≥ 1,5 mm) en restant proche de la précision du DLP.
 
+## Procédures de mesure : renseigner les réglages avec des mesures réelles
+
+**Dossier en ligne (fr / English / 中文) : https://kreuille.github.io/simulation-light/light-engine/bancs-mesure/**
+
+Cinq bancs de mesure pour obtenir les valeurs de « Optique de la lumière » et de la résine : pas et forme du pixel (microscope), tache en fonction de la hauteur, divergence et angle maximal (papier calque ou photodiode), uniformité et fuite (radiomètre 9 points), dose, profondeur et retrait (plaque d'essai). Matériel, croquis, procédures et calculateurs.
+
+| Fichier | Contenu |
+|---|---|
+| [`bancs-mesure/index.html`](bancs-mesure/index.html) | Le dossier, en une page autonome avec choix de langue |
+| `bancs-mesure/bancs-mesure-fr.pdf`, `-en.pdf`, `-zh.pdf` | Version PDF à télécharger dans chaque langue |
+| [`bancs-mesure/motifs-uvtools.zip`](bancs-mesure/motifs-uvtools.zip) | 14 images PNG de motifs d'écran (7680 × 4320, pas 34 µm) et le script `make_patterns.py` qui les régénère pour une autre résolution ou un autre pas |
+
+Les valeurs de repère du dossier (budgets, seuils de validation, incertitudes) sont des ordres de grandeur, non validés sur du matériel réel.
+
 ## Hypothèses du modèle
 
 - **Optique.** L'image au plan de polymérisation est l'image du masque convoluée par une réponse impulsionnelle (PSF) = disque (cône de lumière, rayon = jeu × tan θ, θ limité par l'angle maximal admis) ⊗ gaussienne. Diffusion : 15 µm par mm de jeu × (405/λ)⁴, plus un terme de diffusion dans la résine 25/(1 + 3·photobloqueur) × (λ/405)³. Le DLP n'a pas de cône : son flou vient de l'objectif et du DMD.

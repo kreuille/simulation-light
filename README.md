@@ -31,4 +31,6 @@ Compare la précision de l'impression résine LCD (MSLA) et DLP sur une arcade d
 | [`light-engine/simulateur/`](light-engine/simulateur/index.html) | Le simulateur (une page HTML autonome) : optique, dose, couches, retrait, décollement du film, carte 3D, bilan, compensation |
 | [`light-engine/tests/`](light-engine/tests) | Tests du modèle et des traductions (`node light-engine/tests/simulateur.test.js`) |
 
+**Procédures de mesure (matériel, croquis, calculateurs, PDF) : https://kreuille.github.io/simulation-light/light-engine/bancs-mesure/**
+
 Détails, hypothèses et limites : [`light-engine/README.md`](light-engine/README.md). Les valeurs par défaut ne sont pas calibrées sur des impressions réelles.
