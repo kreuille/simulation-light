@@ -1,0 +1,53 @@
+# Lance tous les tests du projet à chaque commit et à chaque pull request.
+name: Tests
+
+# Sur une PR, seul l'événement pull_request déclenche les tests (pas de doublon avec push).
+# Les push directs ne lancent les tests que sur main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupération du dépôt
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Dépendances Python
+        run: python -m pip install numpy
+
+      - name: Tests du simulateur (Node.js)
+        working-directory: print
+        run: node tests/simulateur.test.js
+
+      - name: Parité simulateur (JS) ↔ bibliothèque msla_detect (C++)
+        working-directory: print
+        run: bash tests/lib/run.sh
+
+      - name: Contrôle du bac du firmware, compilé sur PC (C++)
+        working-directory: print
+        run: bash tests/firmware_host/run.sh
+
+      - name: Protocole série carte mère (C++)
+        working-directory: print
+        run: bash tests/protocole/run.sh
+
+      - name: Détection par couche en direct (C++)
+        working-directory: print
+        run: bash tests/couche_live/run.sh
+
+      - name: Géométrie de l'étude 10,1″ (Python)
+        working-directory: print
+        run: python tests/test_fusion_geometrie.py

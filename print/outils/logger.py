@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Enregistreur du banc de mesure MSLA.
+MSLA force bench logger.
 
-Lit les mesures envoyées par l'ESP32 (firmware banc_msla.ino) sur le port USB
-et les écrit dans un fichier CSV, avec un en-tête de métadonnées (machine, résine,
-température, remarques). Le fichier se charge tel quel dans le simulateur,
-section « Données réelles et recalage ».
+Reads the measurements sent by the ESP32 (banc_msla.ino firmware) on the USB port and
+writes them to a CSV file, with a metadata header (machine, resin, temperature, notes).
+The file loads as is into the simulator, section "Real data and fit".
 
-Installation :   pip install pyserial
-Exemples :
+The command-line help and messages below are kept in French, for the operator.
+
+Install:   pip install pyserial
+Examples:
   python logger.py --liste
   python logger.py --port COM5 --tare --machine "Saturn atelier" --resine "Grise std" --temp 24
   python logger.py --port /dev/ttyUSB0 --duree 1800 --note "test supports fins"
 
-Arrêt : Ctrl+C (le firmware reçoit « stop » et le fichier est fermé proprement).
+Stop: Ctrl+C (the firmware receives "stop" and the file is closed cleanly).
 """
 import argparse
 import datetime as dt
@@ -57,7 +58,7 @@ def main():
             "resine": a.resine, "temperature_C": a.temp, "note": a.note}
 
     ser = serial.Serial(a.port, a.baud, timeout=1)
-    time.sleep(1.5)                 # l'ESP32 redémarre à l'ouverture du port
+    time.sleep(1.5)                 # the ESP32 restarts when the port is opened
     ser.reset_input_buffer()
     ser.write(b"stop\n")
     time.sleep(0.2)

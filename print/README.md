@@ -1,4 +1,53 @@
-# Banc de mesure MSLA
+# Banc de mesure MSLA / MSLA Force Bench / MSLA 测力台
+
+Langues / Languages / 语言 : [Français](#français) · [English](#english-overview) · [中文](#中文-概览)
+
+Documentation détaillée trilingue (FR/EN/中文) : `BOM.md`, `firmware/PROTOCOLE.md`,
+`docs/DETECTION_SPEC.md`, `docs/SOFTWARE_DEV_GUIDE.md`.
+
+## English (overview)
+
+This kit changes an LCD resin printer into a measurement bench. It also checks the resin
+vat before each print. It records the force on the build platform (and, as an option, below
+the 4 corners of the vat), the Z position, and the UV state, layer by layer. The records
+load into the **MSLA resin sensor simulator** (`simulateur/index.html`), which cuts the
+layers, measures the peel peaks and the compression, and fits the model to your machine and
+resin.
+
+The system also finds faults during a print (detachment, support failure, debris, loose
+film) and sends verdicts to the printer motherboard on a serial link.
+
+Start here:
+- Parts and wiring: `BOM.md` and `docs/DETECTION_SPEC.md` (with diagrams).
+- Full build and detection specification (ASD-STE100): `docs/DETECTION_SPEC.md`.
+- Software architecture and API: `docs/SOFTWARE_DEV_GUIDE.md`.
+- Serial protocol to the motherboard: `firmware/PROTOCOLE.md`.
+- Build and upload the firmware with Arduino IDE 2 (board "ESP32 Dev Module").
+- Run the tests on a PC: `node tests/simulateur.test.js`, `bash tests/lib/run.sh`,
+  `bash tests/firmware_host/run.sh`, `bash tests/protocole/run.sh`,
+  `bash tests/couche_live/run.sh`, `python3 tests/test_fusion_geometrie.py`.
+
+## 中文 (概览)
+
+本套件把一台 LCD 树脂打印机改造成测力台，并在每次打印前检查料槽。它逐层记录构建平台受力
+（可选：料槽四角下方）、Z 轴位置与紫外状态。记录导入 **MSLA 树脂传感器模拟器**
+（`simulateur/index.html`）进行分层、测量剥离峰值与压缩，并把模型标定到你的机器和树脂。
+
+系统还能在打印过程中发现故障（脱落、支撑断裂、碎屑、离型膜松弛），并通过串口向打印机主板发送判定。
+
+从这里开始：
+- 物料与接线：`BOM.md` 与 `docs/DETECTION_SPEC.md`（含接线图）。
+- 完整搭建与检测规范（ASD-STE100）：`docs/DETECTION_SPEC.md`。
+- 软件架构与 API：`docs/SOFTWARE_DEV_GUIDE.md`。
+- 与主板的串口协议：`firmware/PROTOCOLE.md`。
+- 用 Arduino IDE 2 编译并烧录固件（开发板“ESP32 Dev Module”）。
+- 在 PC 上运行测试：`node tests/simulateur.test.js`、`bash tests/lib/run.sh`、
+  `bash tests/firmware_host/run.sh`、`bash tests/protocole/run.sh`、
+  `bash tests/couche_live/run.sh`、`python3 tests/test_fusion_geometrie.py`。
+
+---
+
+## Français
 
 Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à contrôler le bac avant chaque impression (§7). Il enregistre la force sur le plateau (et, en option, sous les 4 coins du bac), la position de l'axe Z et l'état de l'UV, couche par couche. Les fichiers obtenus se chargent dans le **Simulateur capteurs résine MSLA** (`simulateur/index.html`) (section 5, « Données réelles et recalage »), qui découpe les couches, mesure les pics d'arrachement, la compression et le temps d'immobilisation de la résine, puis recale le modèle sur ta machine et ta résine.
 
@@ -6,13 +55,20 @@ Ce kit transforme une imprimante résine LCD en banc de mesure, et sert aussi à
 
 | Fichier | Rôle |
 |---|---|
-| `firmware/banc_msla/banc_msla.ino` | Programme de l'ESP32 : lecture des HX711, comptage des pas Z, capteur UV, envoi CSV |
+| `firmware/banc_msla/banc_msla.ino` | Programme de l'ESP32 : lecture des HX711, comptage des pas Z, capteur UV, envoi CSV, contrôle du bac, protocole carte mère |
+| `firmware/PROTOCOLE.md` | Protocole série (Serial2) entre le banc de mesure et la carte mère de l'imprimante |
+| `BOM.md` | Nomenclature du matériel (composants, câblage, budget) |
+| `docs/DETECTION_SPEC.md` | Spécification complète de la détection (anglais ASD-STE100 + 中文), schémas de câblage inclus |
+| `docs/SOFTWARE_DEV_GUIDE.md` | Guide développeur logiciel (anglais + 中文) : API, flux de données, seuils, points d'extension |
+| `docs/SOFTWARE.md` | Documentation logicielle complète (anglais) : architecture, modules, algorithmes, firmware, protocole, API, perf, tests |
+| `docs/STRUCTURE.md` | Arborescence du dépôt expliquée (anglais) : rôle de chaque répertoire, avec schéma visuel |
 | `outils/logger.py` | Enregistre les mesures de l'ESP32 dans un fichier CSV avec les métadonnées de l'essai |
 | `outils/layers_from_images.py` | Calcule la surface exposée de chaque couche à partir des images de couches du fichier tranché |
 | `exemples/enregistrement_exemple.csv` | Enregistrement synthétique (60 couches) pour tester la chaîne sans matériel |
 | `exemples/couches_figurine.csv` | Fichier de couches correspondant à l'exemple |
 | `simulateur/index.html` | Simulateur capteurs résine MSLA (s'ouvre directement dans un navigateur, sans installation) |
-| `tests/` | Tests du simulateur (Node.js) et du contrôle du bac du firmware (sur PC) |
+| `lib/msla_detect/` | Bibliothèque C++ de détection (filtres, apprentissage par couche, stabilité, contrôle du bac, planéité, pesée, fuite), portable et sans allocation dynamique, utilisée par le firmware et les tests |
+| `tests/` | Tests du simulateur (Node.js), parité simulateur↔bibliothèque C++ et contrôle du bac du firmware (sur PC) |
 
 ## 1. Matériel
 
@@ -71,6 +127,8 @@ Cellule vers HX711 : rouge E+, noir E−, blanc A−, vert A+ (code le plus cour
 3. Ouvrir le moniteur série à 921600 bauds, fin de ligne « LF », taper `aide`.
 
 Si tu as changé une broche, modifie le bloc « Câblage » en tête du fichier. DIR doit rester sur une broche inférieure à 32.
+
+Le firmware partage sa logique de détection avec le simulateur via la bibliothèque `lib/msla_detect/`. L'IDE Arduino compile automatiquement le sous-dossier `firmware/banc_msla/src/`, qui pointe vers cette bibliothèque par un lien symbolique (`src/msla_detect → ../../lib/msla_detect`). Sous Windows, si le lien n'est pas suivi à l'extraction du dépôt, remplace `firmware/banc_msla/src/msla_detect` par une **copie** du dossier `lib/msla_detect`.
 
 | Commande | Effet |
 |---|---|
@@ -175,6 +233,21 @@ Réglages du contrôle : `maintien <s>` (durée de l'attente en bas, 5 s par dé
 
 **Limite importante.** Le banc ne peut pas arrêter l'imprimante. Pendant le test, un très gros débris (plusieurs dixièmes de mm, dur) subit déjà toute la force du moteur avant que tu puisses réagir. Après une impression ratée, fais donc toujours une couche de nettoyage et filtre la résine avant de lancer le contrôle : le contrôle sert à trouver ce qui reste et qu'on ne voit pas.
 
+## 7 bis. Bac, résine et planéité (4 cellules sous le bac, `cells 5`)
+
+Une seule fois, **sans bac** : `tarevide` (zéro des 4 cellules). Puis pose le bac **vide** bien enclenché : `refbac` (poids et répartition de référence).
+
+| Commande | Ce qu'elle fait |
+|---|---|
+| `pesee` | présence du bac, coin mal enclenché, bac décalé, quantité de résine (ml) |
+| `fuite <min>` | pèse au début et à la fin (30 min par défaut), imprimante à l'arrêt ; alerte au-delà de 3 g perdus |
+| `densite <g/ml>` | densité de la résine (1,1 par défaut) |
+| `planeite` | analyse la prochaine descente lente du plateau vide (fichier de test du §7, 30 mm/min) |
+
+`planeite` donne le décalage du centre d'effort (dx, dy en mm) quand la somme des 4 cellules atteint 5 N et le côté le plus bas du plateau. Entre ces deux valeurs dans le convertisseur de la section « Bac, résine et planéité » du simulateur pour obtenir l'angle (résolution ≈ 0,02°). Le capteur du bras Z seul ne donne que l'ampleur, pas la direction.
+
+Limite : une couche polymérisée sur une pièce immergée ne change pas le poids du bac (poussée d'Archimède) ; la consommation se voit seulement quand la pièce sort de la résine.
+
 ## 8. Programme d'essais conseillé
 
 Note la température de la résine à chaque essai : c'est le paramètre qui change le plus les forces.
@@ -240,7 +313,23 @@ Le simulateur accepte aussi un fichier sans les colonnes des coins, ou sans `fz_
 
 ```
 node tests/simulateur.test.js        # modèle, détection des pannes, contrôle du bac, recalage
+bash tests/lib/run.sh                # parité simulateur (JS) ↔ bibliothèque msla_detect (C++)
 bash tests/firmware_host/run.sh      # contrôle du bac du firmware, compilé sur PC (g++, python3, numpy)
+bash tests/protocole/run.sh          # protocole série carte mère ↔ banc (Serial2), compilé sur PC
+bash tests/couche_live/run.sh        # détection par couche EN DIRECT du firmware, sur les scénarios du simulateur
+python3 tests/test_fusion_geometrie.py   # étude 10,1″ : géométrie du script Fusion 360
 ```
 
-Le second test compile le code du firmware sur PC avec de fausses bibliothèques Arduino et lui fait analyser des enregistrements synthétiques : bac propre, résidus de 60, 100 et 300 µm, niveau de résine différent de la référence.
+Le test `couche_live` rejoue les scénarios du simulateur à travers le chemin réel du firmware (commandes `L`/`U` de la carte mère + échantillons de force, le firmware déduisant lui-même les phases du mouvement Z) et vérifie que chaque défaut est signalé à la bonne couche, sans aucune fausse alerte sur une impression normale.
+
+Simulation de performance (outils d'analyse, hors CI, ~2 min) :
+
+```
+bash tests/perf/run.sh               # budget temps réel + coût de calcul + robustesse au bruit
+```
+
+`tests/perf/` chiffre le budget temps réel de la chaîne (HX711→ESP32, liaisons série), mesure le coût de calcul réel de la détection (pire cas vs période d'échantillonnage) et balaie le bruit du signal pour trouver la limite de détection. Les conclusions sont figées dans `tests/perf/RAPPORT.md`.
+
+Le test de parité fait exporter par le simulateur un jeu de scénarios (traces + verdict attendu) et vérifie que la bibliothèque C++ retrouve exactement les mêmes verdicts d'apprentissage par couche et les mêmes temps de stabilisation, sans aucune fausse alerte.
+
+Le test du firmware compile le firmware sur PC avec de fausses bibliothèques Arduino et lui fait analyser des enregistrements synthétiques : bac propre, résidus de 60, 100 et 300 µm, niveau de résine différent de la référence. Comme le firmware utilise désormais la bibliothèque `lib/msla_detect/`, ce test valide aussi le contrôle du bac de la bibliothèque.
