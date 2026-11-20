@@ -1881,54 +1881,43 @@ function initM3D(){
   function drawScope(){
     const c=$('m3dscope');if(!c||!c.getContext)return;const g=c.getContext('2d'),W=c.width,H=c.height;
     g.clearRect(0,0,W,H);
-    if(M.inApp){                                                 // ---- Approche : courbe de la force de descente (contact résine puis écoulement/écrasement) ----
-      const A=M.appT||5,padL=5,padR=5,padT=13,padB=5,plotW=W-padL-padR,plotH=H-padT-padB,X=t=>padL+(t/A)*plotW;
-      let hi=2;for(let i=0;i<=48;i++)hi=Math.max(hi,appForce(A*i/48));hi*=1.15;const Y=v=>padT+(1-v/hi)*plotH;
-      g.fillStyle='rgba(255,179,71,.12)';g.fillRect(X(A*0.55),padT,X(A)-X(A*0.55),plotH);   // zone « dans la résine »
-      g.strokeStyle='rgba(255,255,255,.18)';g.beginPath();g.moveTo(padL,Y(0));g.lineTo(W-padR,Y(0));g.stroke();
-      g.strokeStyle=css('--s-z')||'#ffd54a';g.lineWidth=1.6;g.beginPath();for(let i=0;i<=120;i++){const t=A*i/120,x=X(t),y=Y(appForce(t));i?g.lineTo(x,y):g.moveTo(x,y);}g.stroke();
-      if(g.setLineDash)g.setLineDash([3,3]);g.strokeStyle='rgba(255,200,110,.75)';g.beginPath();g.moveTo(X(A*0.55),padT);g.lineTo(X(A*0.55),H-padB);g.stroke();if(g.setLineDash)g.setLineDash([]);
-      g.strokeStyle='#fff';g.lineWidth=1;g.beginPath();g.moveTo(X(M.tcur),padT);g.lineTo(X(M.tcur),H-padB);g.stroke();
-      g.fillStyle='#aeb9d2';g.font='10px ui-monospace,monospace';g.textAlign='left';g.fillText(T('Capteurs (live)')+' · '+T('Approche'),padL+2,10);
-      g.textAlign='right';g.fillText(fmt(hi,0)+' N',W-padR-2,10);
-      return;
-    }
-    const sim=STATE.sim,total=M.totalT||1;
-    // La fenêtre suit la vitesse de lecture : au ralenti elle se rétrécit (la courbe se dilate → plus de détail),
-    // en accéléré elle s'élargit (vue d'ensemble). ~5 s de lecture réelle affichées quelle que soit la vitesse.
-    const sp=(M.speed==='max')?240:M.speed;
-    const win=Math.max(0.35,Math.min(total,sp*5)),t1=Math.min(total,M.te+0.18*win),t0=t1-win;
-    const padL=5,padR=5,padT=13,padB=5,plotW=W-padL-padR,plotH=H-padT-padB;
-    const X=t=>padL+(t-t0)/win*plotW;
-    const i0=idx(t0),i1=idx(t1),fstep=Math.max(1,(i1-i0)/400|0),sel=M.scopeSel||{'true':1,z:1,vat:1,sg:1,fus:1};
-    const lb=(xs,t)=>{if(!xs.length)return 0;let lo2=0,hi2=xs.length-1;while(lo2<hi2){const m=(lo2+hi2+1)>>1;if(xs[m]<=t)lo2=m;else hi2=m-1;}return lo2;}; // dernière valeur <= t
+    if(!STATE||!STATE.sim)return;
+    // Oscilloscope unifié sur l'axe de LECTURE (approche + impression) : le signal traverse la frontière
+    // approche/impression sans se réinitialiser. La sélection des signaux s'applique partout.
+    const sim=STATE.sim,A=M.appT||0,total=M.totalT||1,playT=M.playT||(A+total),sel=M.scopeSel||{'true':1,z:1,vat:1,sg:1,fus:1};
+    const sp=(M.speed==='max')?240:M.speed,win=Math.max(0.35,Math.min(playT,sp*5));
+    const t1=Math.min(playT,M.tcur+0.18*win),t0=t1-win;
+    const padL=5,padR=5,padT=13,padB=5,plotW=W-padL-padR,plotH=H-padT-padB,X=t=>padL+(t-t0)/win*plotW;
+    const NP=Math.max(60,plotW|0);
+    // valeur d'un signal au temps de lecture pt (approche synthétisée, puis données sim décalées de A)
+    const val=(key,pt)=>{
+      if(pt<A){const fa=appForce(pt);return (key==='sg'&&pt<A*0.55)?null:fa;}
+      const st=pt-A;
+      if(key==='true')return sim.F[idx(st)];
+      if(key==='z')return interpAt(STATE.s.zc.t,STATE.s.zc.f,st);
+      if(key==='vat')return interpAt(STATE.s.vat.t,STATE.s.vat.f,st);
+      if(key==='fus')return interpAt(STATE.s.fus.t,STATE.s.fus.f,st);
+      if(key==='sg'){const r=interp(STATE.s.sg,st);return (r.v==null||r.gap>0.15)?null:r.v;}
+      return null;
+    };
     let lo,hi;
-    if(M.scaleFixed){lo=M.fLo;hi=M.fHi;}                        // échelle fixe : amplitude de tout le tirage
-    else{                                                       // échelle auto : min/max des signaux affichés
-      lo=1e9;hi=-1e9;
-      if(sel['true'])for(let i=i0;i<=i1;i+=fstep){const v=sim.F[i];if(v<lo)lo=v;if(v>hi)hi=v;}
-      const scan=ch=>{const xs=ch.t,fs=ch.f;for(let k=lb(xs,t0);k<xs.length;k++){if(fs[k]<lo)lo=fs[k];if(fs[k]>hi)hi=fs[k];if(xs[k]>=t1)break;}};
-      if(sel.z)scan(STATE.s.zc);if(sel.vat)scan(STATE.s.vat);if(sel.fus)scan(STATE.s.fus);if(sel.sg)scan(STATE.s.sg);
-      if(lo>hi){lo=-1;hi=1;}
-    }
-    if(!(hi>lo)){lo=-1;hi=1;}const pd=(hi-lo)*0.12+0.05;lo-=pd;hi+=pd;
-    const Y=v=>padT+(1-(v-lo)/(hi-lo))*plotH;
-    // bandes d'exposition UV (phase 0)
-    g.fillStyle='rgba(155,92,255,.16)';let s=-1;
-    for(let i=i0;i<=i1;i++){const e=sim.PH[i]===0;if(e&&s<0)s=i;else if(!e&&s>=0){g.fillRect(X(sim.T[s]),padT,Math.max(1,X(sim.T[i])-X(sim.T[s])),plotH);s=-1;}}
-    if(s>=0)g.fillRect(X(sim.T[s]),padT,Math.max(1,X(sim.T[i1])-X(sim.T[s])),plotH);
-    // ligne zéro
+    if(M.scaleFixed){lo=M.fLo;hi=M.fHi;}
+    else{lo=1e9;hi=-1e9;for(const k of ['true','z','vat','fus','sg']){if(!sel[k])continue;for(let i=0;i<=NP;i++){const v=val(k,t0+win*i/NP);if(v==null)continue;if(v<lo)lo=v;if(v>hi)hi=v;}}if(lo>hi){lo=-1;hi=1;}}
+    if(!(hi>lo)){lo=-1;hi=1;}const pd=(hi-lo)*0.12+0.05;lo-=pd;hi+=pd;const Y=v=>padT+(1-(v-lo)/(hi-lo))*plotH;
+    // zone « dans la résine » (approche) et bandes d'exposition UV (impression)
+    if(t0<A){g.fillStyle='rgba(255,179,71,.1)';const a0=Math.max(t0,A*0.55),a1=Math.min(t1,A);if(a1>a0)g.fillRect(X(a0),padT,X(a1)-X(a0),plotH);}
+    if(t1>A){g.fillStyle='rgba(155,92,255,.16)';const j0=idx(Math.max(0,t0-A)),j1=idx(Math.min(total,t1-A));let s=-1;for(let i=j0;i<=j1;i++){const e=sim.PH[i]===0;if(e&&s<0)s=i;else if(!e&&s>=0){g.fillRect(X(sim.T[s]+A),padT,Math.max(1,X(sim.T[i]+A)-X(sim.T[s]+A)),plotH);s=-1;}}if(s>=0)g.fillRect(X(sim.T[s]+A),padT,Math.max(1,X(sim.T[j1]+A)-X(sim.T[s]+A)),plotH);}
+    // repère « 1re couche » (fin de l'approche)
+    if(A>t0&&A<t1){if(g.setLineDash)g.setLineDash([3,3]);g.strokeStyle='rgba(255,200,110,.6)';g.lineWidth=1;g.beginPath();g.moveTo(X(A),padT);g.lineTo(X(A),H-padB);g.stroke();if(g.setLineDash)g.setLineDash([]);}
     if(lo<0&&hi>0){g.strokeStyle='rgba(255,255,255,.18)';g.lineWidth=1;g.beginPath();g.moveTo(padL,Y(0));g.lineTo(W-padR,Y(0));g.stroke();}
-    // tracé continu : on part de l'échantillon juste avant t0 jusqu'à juste après t1 (bord à bord)
-    const chLine=(ch,col)=>{const xs=ch.t,fs=ch.f;if(!xs.length)return;g.strokeStyle=col;g.lineWidth=1.5;g.beginPath();let st=false;for(let k=lb(xs,t0);k<xs.length;k++){const x=X(xs[k]),y=Y(fs[k]);if(st)g.lineTo(x,y);else{g.moveTo(x,y);st=true;}if(xs[k]>=t1)break;}g.stroke();};
-    if(sel['true']){g.strokeStyle=css('--s-true')||'#9aa4bb';g.lineWidth=1;g.beginPath();let st=false;for(let i=i0;i<=i1;i+=fstep){const x=X(sim.T[i]),y=Y(sim.F[i]);if(st)g.lineTo(x,y);else{g.moveTo(x,y);st=true;}}g.stroke();}
-    if(sel.z)chLine(STATE.s.zc,css('--s-z')||'#ffd54a');
-    if(sel.vat)chLine(STATE.s.vat,css('--s-vat')||'#4ad5c0');
-    if(sel.fus)chLine(STATE.s.fus,M.fusCol||'#b794f6');
-    if(sel.sg){const xs=STATE.s.sg.t,fs=STATE.s.sg.f;g.fillStyle=css('--s-sg')||'#ff8a5c';g.globalAlpha=0.5;for(let k=lb(xs,t0);k<xs.length;k++){if(xs[k]>t1)break;if(xs[k]<t0)continue;g.beginPath();g.arc(X(xs[k]),Y(fs[k]),1,0,7);g.fill();}g.globalAlpha=1;}
-    // curseur « maintenant »
-    g.strokeStyle='#ffffff';g.lineWidth=1;g.beginPath();g.moveTo(X(M.te),padT);g.lineTo(X(M.te),H-padB);g.stroke();
-    // titre + repères d'échelle
+    // courbes : échantillonnage continu sur toute la fenêtre -> pas de reset à la frontière
+    const line=(key,col,wd)=>{g.strokeStyle=col;g.lineWidth=wd;g.beginPath();let st=false;for(let i=0;i<=NP;i++){const pt=t0+win*i/NP,v=val(key,pt);if(v==null){st=false;continue;}const x=X(pt),y=Y(v);if(st)g.lineTo(x,y);else{g.moveTo(x,y);st=true;}}g.stroke();};
+    if(sel['true'])line('true',css('--s-true')||'#9aa4bb',1);
+    if(sel.z)line('z',css('--s-z')||'#ffd54a',1.5);
+    if(sel.vat)line('vat',css('--s-vat')||'#4ad5c0',1.5);
+    if(sel.fus)line('fus',M.fusCol||'#b794f6',1.5);
+    if(sel.sg){g.fillStyle=css('--s-sg')||'#ff8a5c';g.globalAlpha=0.5;for(let i=0;i<=NP;i++){const pt=t0+win*i/NP,v=val('sg',pt);if(v==null)continue;g.beginPath();g.arc(X(pt),Y(v),1,0,7);g.fill();}g.globalAlpha=1;}
+    g.strokeStyle='#ffffff';g.lineWidth=1;g.beginPath();g.moveTo(X(M.tcur),padT);g.lineTo(X(M.tcur),H-padB);g.stroke();
     g.fillStyle='#aeb9d2';g.font='10px ui-monospace,monospace';g.textAlign='left';g.fillText(T('Capteurs (live)')+'  ·  '+fmt(win,win<10?1:0)+' s',padL+2,10);
     g.textAlign='right';g.fillText(fmt(hi,0)+' N',W-padR-2,10);g.fillText(fmt(lo,0)+' N',W-padR-2,H-2);
   }
