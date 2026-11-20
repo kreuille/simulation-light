@@ -1615,6 +1615,16 @@ function initM3D(){
     if(valid){const s=af.map(x=>x/as);cx=W*(s[1]+s[2]);cy=H*(s[2]+s[3]);off=Math.hypot(cx-W/2,cy-H/2);}
     return {f,af,cx,cy,off,valid,W,H,thr:Math.max(8,W*0.08)};
   }
+  // Modèle de l'approche avant impression : descente rapide dans l'air (0..55 %), puis descente lente
+  // dans la résine (55..100 %). Position du plateau et force mesurée (nulle en l'air, puis contact de la
+  // résine, traînée/écoulement qui croissent, écrasement d'un résidu en fin de descente).
+  function appResinY(){return Math.max(0.03,Math.min(0.42,(+((($('m3drh')||{}).value)||8))*0.016));}
+  function appState(tapp){
+    const A=M.appT||5,hi=0.8,resY=appResinY(),lo=0.055,split=0.55;
+    if(tapp<A*split){const a=tapp/(A*split),e=a*a*(3-2*a);return {y:resY+(1-e)*(hi-resY),inResin:false,pr:0,resY,split:A*split};}
+    const a=Math.min(1,(tapp-A*split)/(A*(1-split))),e=a*a*(3-2*a);return {y:lo+(1-e)*(resY-lo),inResin:true,pr:a,resY,split:A*split};
+  }
+  function appForce(tapp){const s=appState(tapp);if(!s.inResin)return 0;let F=1.5+8*s.pr*s.pr;if(STATE&&STATE.p&&STATE.p.scen==='residue0')F+=22*Math.max(0,s.pr-0.6)/0.4;return F;}
   function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
   function setTxt(id,t){const e=$(id);if(e)e.textContent=t;}
   function rk(k,v){return '<span class="m3d-rk">'+k+' : <b>'+v+'</b></span>';}
@@ -1688,27 +1698,24 @@ function initM3D(){
     const rp=sim.truth.residuePos;
     if(residMark){const show=rp&&p.scen==='residue0';residMark.visible=!!show;if(show){residMark.position.set((rp.x-W0/2)*M.SC,0.02,-(rp.y-H0/2)*M.SC);residMark.scale.setScalar(0.06);}}
     if(M.inApp){                                                  // ---- Phase d'approche : le plateau descend du haut vers la 1re couche ----
-      const ap=Math.max(0,Math.min(1,M.tcur/(M.appT||1))),ease=ap*ap*(3-2*ap);
+      const st=appState(M.tcur),y=st.y,resinY=st.resY;
       for(const o of M.parts)o.mesh.visible=false;               // pièce pas encore imprimée
-      const topY=0.055+(1-ease)*0.7;                             // plateau en haut -> descend
-      platform.position.set(M.partCX,topY+0.055,M.partCZ);
-      arm.position.set((M.partCX-1.55)/2,topY+0.14,M.partCZ);arm.scale.set(Math.abs(M.partCX+1.55)+0.2,0.12,0.2);
+      platform.position.set(M.partCX,y+0.055,M.partCZ);           // plateau en haut -> descend (air puis résine)
+      arm.position.set((M.partCX-1.55)/2,y+0.14,M.partCZ);arm.scale.set(Math.abs(M.partCX+1.55)+0.2,0.12,0.2);
       screenMesh.material.emissiveIntensity*=0.82;uvLight.intensity*=0.82;lcdMesh.material.opacity*=0.82;
-      const h0=+((($('m3drh')||{}).value)||8),resinY=Math.max(0.03,Math.min(0.42,h0*0.016));
       const vwR=W0*M.SC*0.98,vhR=H0*M.SC*0.98;
       resin.scale.set(vwR,resinY+0.02,vhR);resin.position.set(0,(resinY-0.02)/2,0);resinSurf.scale.set(vwR,vhR,1);resinSurf.position.set(0,resinY,0);
-      // charge mesurée par les 4 cellules : apparaît quand le plateau approche du fond, décalée vers le résidu / côté bas
-      const contactF=Math.max(0,(ease-0.55)/0.45)*12;
+      const Fapp=appForce(M.tcur);M.appF=Fapp;                    // force mesurée pendant la descente
       let cx=W0/2,cy=H0/2;
       if(p.scen==='residue0'&&rp){cx=rp.x;cy=rp.y;}else if(p.scen==='align'){cx=sim.truth.part.x;cy=sim.truth.part.y;}
-      const u=cx/W0,vv=cy/H0,wg=[(1-u)*(1-vv),u*(1-vv),u*vv,(1-u)*vv],f=wg.map(w=>w*contactF);
-      const valid=contactF>2,off=Math.hypot(cx-W0/2,cy-H0/2);
+      const u=cx/W0,vv=cy/H0,wg=[(1-u)*(1-vv),u*(1-vv),u*vv,(1-u)*vv],f=wg.map(w=>w*Fapp);
+      const valid=Fapp>2,off=Math.hypot(cx-W0/2,cy-H0/2);
       M.cells={f,af:f.map(Math.abs),cx:valid?cx:W0/2,cy:valid?cy:H0/2,off:valid?off:0,valid,W:W0,H:H0,thr:Math.max(8,W0*0.08)};
       if(cog){const gx=(M.cells.cx-W0/2)*M.SC,gz=-(M.cells.cy-H0/2)*M.SC;cog.position.set(gx,resinY+0.03,gz);cog.scale.setScalar(valid?0.055:0.0001);const bad=M.cells.off>M.cells.thr;cog.material.color.set(bad?0xff5a5a:0xffe066);cog.material.emissive.set(bad?0x5a1010:0x8a6a00);}
-      const initVol=W0*H0*h0/1000;
-      M.resin={initVol,vol:initVol,weight:initVol*RHO,consumed:0,consLayer:0,levelMm:h0,h0,leakRate:+((($('m3drl')||{}).value)||0),leaked:0,leakDet:false};
-      M.resinContact=null;M.partSub=false;
-      M.prePrint=(ease>0.8&&p.scen==='residue0')?'residue':((ease>0.8&&p.scen==='align')?'align':null);
+      const h0b=+((($('m3drh')||{}).value)||8),initVol=W0*H0*h0b/1000;
+      M.resin={initVol,vol:initVol,weight:initVol*RHO,consumed:0,consLayer:0,levelMm:h0b,h0:h0b,leakRate:+((($('m3drl')||{}).value)||0),leaked:0,leakDet:false};
+      M.resinContact=st.inResin?'plateau':null;M.partSub=false;
+      M.prePrint=(st.pr>0.6&&p.scen==='residue0')?'residue':((st.inResin&&p.scen==='align')?'align':null);
       updateFEP(0.2,0.2);
       return;
     }
@@ -1805,7 +1812,14 @@ function initM3D(){
       '<div>'+T(PH_NAME[ph]||'')+(ph===0?' · <span style="color:#c39bff">'+T('UV allumé')+'</span>':'')+'</div>'+
       '<div style="color:#ffcf8a">'+rc+'</div>';
     }
-    const rows=[
+    const vatSum=M.cells?M.cells.f.reduce((a,b)=>a+b,0):0;
+    const rows=M.inApp?[                                          // pendant l'approche : données synthétisées de la descente
+      {n:'Force réelle',v:M.appF||0,c:css('--s-true')||'#9aa4bb'},
+      {n:'Cellule bras Z',v:M.appF||0,c:css('--s-z')||'#ffd54a',k:'z'},
+      {n:'4 cellules bac (somme)',v:vatSum,c:css('--s-vat')||'#4ad5c0',k:'vat'},
+      {n:'StallGuard (estimé)',v:M.appF||0,c:css('--s-sg')||'#ff8a5c',k:'sg'},
+      {n:'Fus',v:M.appF||0,c:'#b794f6',k:'fus'}
+    ]:[
       {n:'Force réelle',v:sim.F[M.curI],c:css('--s-true')||'#9aa4bb'},
       {n:'Cellule bras Z',v:interp(STATE.s.zc,M.te).v,c:css('--s-z')||'#ffd54a',k:'z'},
       {n:'4 cellules bac (somme)',v:interp(STATE.s.vat,M.te).v,c:css('--s-vat')||'#4ad5c0',k:'vat'},
@@ -1861,6 +1875,18 @@ function initM3D(){
   function drawScope(){
     const c=$('m3dscope');if(!c||!c.getContext)return;const g=c.getContext('2d'),W=c.width,H=c.height;
     g.clearRect(0,0,W,H);
+    if(M.inApp){                                                 // ---- Approche : courbe de la force de descente (contact résine puis écoulement/écrasement) ----
+      const A=M.appT||5,padL=5,padR=5,padT=13,padB=5,plotW=W-padL-padR,plotH=H-padT-padB,X=t=>padL+(t/A)*plotW;
+      let hi=2;for(let i=0;i<=48;i++)hi=Math.max(hi,appForce(A*i/48));hi*=1.15;const Y=v=>padT+(1-v/hi)*plotH;
+      g.fillStyle='rgba(255,179,71,.12)';g.fillRect(X(A*0.55),padT,X(A)-X(A*0.55),plotH);   // zone « dans la résine »
+      g.strokeStyle='rgba(255,255,255,.18)';g.beginPath();g.moveTo(padL,Y(0));g.lineTo(W-padR,Y(0));g.stroke();
+      g.strokeStyle=css('--s-z')||'#ffd54a';g.lineWidth=1.6;g.beginPath();for(let i=0;i<=120;i++){const t=A*i/120,x=X(t),y=Y(appForce(t));i?g.lineTo(x,y):g.moveTo(x,y);}g.stroke();
+      if(g.setLineDash)g.setLineDash([3,3]);g.strokeStyle='rgba(255,200,110,.75)';g.beginPath();g.moveTo(X(A*0.55),padT);g.lineTo(X(A*0.55),H-padB);g.stroke();if(g.setLineDash)g.setLineDash([]);
+      g.strokeStyle='#fff';g.lineWidth=1;g.beginPath();g.moveTo(X(M.tcur),padT);g.lineTo(X(M.tcur),H-padB);g.stroke();
+      g.fillStyle='#aeb9d2';g.font='10px ui-monospace,monospace';g.textAlign='left';g.fillText(T('Capteurs (live)')+' · '+T('Approche'),padL+2,10);
+      g.textAlign='right';g.fillText(fmt(hi,0)+' N',W-padR-2,10);
+      return;
+    }
     const sim=STATE.sim,total=M.totalT||1;
     // La fenêtre suit la vitesse de lecture : au ralenti elle se rétrécit (la courbe se dilate → plus de détail),
     // en accéléré elle s'élargit (vue d'ensemble). ~5 s de lecture réelle affichées quelle que soit la vitesse.
