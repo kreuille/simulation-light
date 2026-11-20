@@ -51,3 +51,7 @@ jobs:
       - name: Géométrie de l'étude 10,1″ (Python)
         working-directory: print
         run: python tests/test_fusion_geometrie.py
+
+      - name: Exemple quickstart d'intégration (C++)
+        working-directory: print
+        run: bash exemples/run.sh

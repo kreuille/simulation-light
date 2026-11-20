@@ -4,3 +4,4 @@ __pycache__/
 build/
 *.bin
 *.elf
+print/exemples/quickstart_detection
