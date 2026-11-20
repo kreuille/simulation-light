@@ -1631,6 +1631,20 @@ function initM3D(){
     const a=Math.min(1,(tapp-A*split)/(A*(1-split))),e=a*a*(3-2*a);return {y:lo+(1-e)*(resY-lo),inResin:true,pr:a,resY,split:A*split};
   }
   function appForce(tapp){const s=appState(tapp);if(!s.inResin)return 0;let F=1.5+8*s.pr*s.pr;if(STATE&&STATE.p&&STATE.p.scen==='residue0')F+=22*Math.max(0,s.pr-0.6)/0.4;return F;}
+  // Valeur d'un capteur pendant l'approche : même force physique (3e loi de Newton)
+  // mais bruit propre à chaque capteur → la somme bac et la cellule Z ne sont pas identiques.
+  function appChan(key,pt){
+    const A=M.appT||0, s=appState(pt), fa=appForce(pt);
+    const nz=(STATE&&STATE.p&&STATE.p.noise)||1;
+    const h=(a,b)=>Math.sin(pt*a+b)*0.6+Math.sin(pt*(a*0.37)+b*1.7)*0.4;
+    if(key==='true')return fa;                       // force réelle : sans bruit
+    if(fa===0)return key==='sg'?null:0;              // en l'air : aucune action
+    if(key==='z')return fa+h(41,1)*0.04*nz;          // cellule Z unique : peu bruitée
+    if(key==='vat')return fa+h(53,2)*0.18*nz;        // somme 4 cellules : plus bruitée
+    if(key==='fus')return fa+h(47,3)*0.05*nz;        // fusion : proche du réel
+    if(key==='sg')return s.inResin?fa+h(59,4)*0.45*nz:null; // StallGuard : seulement dans la résine
+    return fa;
+  }
   function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
   function setTxt(id,t){const e=$(id);if(e)e.textContent=t;}
   function rk(k,v){return '<span class="m3d-rk">'+k+' : <b>'+v+'</b></span>';}
@@ -1818,13 +1832,12 @@ function initM3D(){
       '<div>'+T(PH_NAME[ph]||'')+(ph===0?' · <span style="color:#c39bff">'+T('UV allumé')+'</span>':'')+'</div>'+
       '<div style="color:#ffcf8a">'+rc+'</div>';
     }
-    const vatSum=M.cells?M.cells.f.reduce((a,b)=>a+b,0):0;
-    const rows=M.inApp?[                                          // pendant l'approche : données synthétisées de la descente
-      {n:'Force réelle',v:M.appF||0,c:css('--s-true')||'#9aa4bb'},
-      {n:'Cellule bras Z',v:M.appF||0,c:css('--s-z')||'#ffd54a',k:'z'},
-      {n:'4 cellules bac (somme)',v:vatSum,c:css('--s-vat')||'#4ad5c0',k:'vat'},
-      {n:'StallGuard (estimé)',v:M.appF||0,c:css('--s-sg')||'#ff8a5c',k:'sg'},
-      {n:'Fus',v:M.appF||0,c:'#b794f6',k:'fus'}
+    const rows=M.inApp?[                                          // pendant l'approche : chaque capteur a son propre bruit
+      {n:'Force réelle',v:appChan('true',M.tcur),c:css('--s-true')||'#9aa4bb'},
+      {n:'Cellule bras Z',v:appChan('z',M.tcur),c:css('--s-z')||'#ffd54a',k:'z'},
+      {n:'4 cellules bac (somme)',v:appChan('vat',M.tcur),c:css('--s-vat')||'#4ad5c0',k:'vat'},
+      {n:'StallGuard (estimé)',v:appChan('sg',M.tcur),c:css('--s-sg')||'#ff8a5c',k:'sg'},
+      {n:'Fus',v:appChan('fus',M.tcur),c:'#b794f6',k:'fus'}
     ]:[
       {n:'Force réelle',v:sim.F[M.curI],c:css('--s-true')||'#9aa4bb'},
       {n:'Cellule bras Z',v:interp(STATE.s.zc,M.te).v,c:css('--s-z')||'#ffd54a',k:'z'},
@@ -1891,7 +1904,7 @@ function initM3D(){
     const NP=Math.max(60,plotW|0);
     // valeur d'un signal au temps de lecture pt (approche synthétisée, puis données sim décalées de A)
     const val=(key,pt)=>{
-      if(pt<A){const fa=appForce(pt);return (key==='sg'&&pt<A*0.55)?null:fa;}
+      if(pt<A)return appChan(key,pt);
       const st=pt-A;
       if(key==='true')return sim.F[idx(st)];
       if(key==='z')return interpAt(STATE.s.zc.t,STATE.s.zc.f,st);
