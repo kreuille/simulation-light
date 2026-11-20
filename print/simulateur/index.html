@@ -1631,18 +1631,23 @@ function initM3D(){
     const a=Math.min(1,(tapp-A*split)/(A*(1-split))),e=a*a*(3-2*a);return {y:lo+(1-e)*(resY-lo),inResin:true,pr:a,resY,split:A*split};
   }
   function appForce(tapp){const s=appState(tapp);if(!s.inResin)return 0;let F=1.5+8*s.pr*s.pr;if(STATE&&STATE.p&&STATE.p.scen==='residue0')F+=22*Math.max(0,s.pr-0.6)/0.4;return F;}
-  // Valeur d'un capteur pendant l'approche : même force physique (3e loi de Newton)
-  // mais bruit propre à chaque capteur → la somme bac et la cellule Z ne sont pas identiques.
+  // Valeur d'un capteur pendant l'approche. La force physique est la même pour
+  // tous (3e loi de Newton : même interaction plateau↔bac) -> même MOYENNE.
+  // Ce qui diffère, c'est la SENSIBILITÉ/résolution de chaque voie :
+  //   bac (balance 4 cellules) = fin et sensible ; cellule Z (raide, préchargée)
+  //   = plus grossier ; StallGuard (moteur, axe rigide) = le plus grossier.
   function appChan(key,pt){
-    const A=M.appT||0, s=appState(pt), fa=appForce(pt);
+    const s=appState(pt), fa=appForce(pt);
     const nz=(STATE&&STATE.p&&STATE.p.noise)||1;
+    const sr=(STATE&&STATE.p&&STATE.p.machine&&STATE.p.machine.sensRes)||0.03;
     const h=(a,b)=>Math.sin(pt*a+b)*0.6+Math.sin(pt*(a*0.37)+b*1.7)*0.4;
-    if(key==='true')return fa;                       // force réelle : sans bruit
+    const q=(v,step)=>Math.round(v/step)*step;       // résolution limitée = marches
+    if(key==='true')return fa;                       // force réelle : vérité terrain
     if(fa===0)return key==='sg'?null:0;              // en l'air : aucune action
-    if(key==='z')return fa+h(41,1)*0.04*nz;          // cellule Z unique : peu bruitée
-    if(key==='vat')return fa+h(53,2)*0.18*nz;        // somme 4 cellules : plus bruitée
-    if(key==='fus')return fa+h(47,3)*0.05*nz;        // fusion : proche du réel
-    if(key==='sg')return s.inResin?fa+h(59,4)*0.45*nz:null; // StallGuard : seulement dans la résine
+    if(key==='vat')return fa+h(53,2)*0.03*nz;        // balance bac : fine et sensible
+    if(key==='fus')return fa+h(47,3)*0.025*nz;       // fusion : tirée vers la balance
+    if(key==='z')return q(fa+h(41,1)*0.04*nz,Math.max(0.1,sr*3)); // bras Z : raide/préchargé -> plus grossier
+    if(key==='sg')return s.inResin?q(fa+h(59,4)*0.3*nz,Math.max(0.6,sr*10)):null; // StallGuard : grossier, sous charge seulement
     return fa;
   }
   function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
