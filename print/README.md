@@ -2,6 +2,10 @@
 
 Langues / Languages / 语言 : [Français](#français) · [English](#english-overview) · [中文](#中文-概览)
 
+📖 **Guide complet développeur (FR/EN/中文)** — arborescence, algorithmes, référence
+d'API, protocole et intégration : page web <https://kreuille.github.io/simulation-light/>
+ou [`docs/GUIDE.md`](docs/GUIDE.md).
+
 Documentation détaillée trilingue (FR/EN/中文) : `BOM.md`, `firmware/PROTOCOLE.md`,
 `docs/DETECTION_SPEC.md`, `docs/SOFTWARE_DEV_GUIDE.md`.
 
