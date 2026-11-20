@@ -239,6 +239,10 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
   .m3d-evts{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
   .m3d-evts button{font:500 12px/1 var(--mono,ui-monospace,monospace);padding:5px 9px;border-radius:7px;border:1px solid var(--line,#d3d8e4);background:var(--card,#fff);color:inherit;cursor:pointer}
   .m3d-evts button.warn{border-color:#ff9f0a;color:#d2740a}
+  .m3d-sig{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .m3d-sig button{font:500 11.5px/1 var(--mono,ui-monospace,monospace);padding:4px 9px;border-radius:14px;border:1px solid var(--line,#d3d8e4);background:var(--card,#fff);color:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .m3d-sig button .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .m3d-sig button.off{opacity:.42}
   .m3d-resin{display:flex;flex-wrap:wrap;gap:5px 16px;margin-top:9px;font:500 12.5px/1.45 var(--mono,ui-monospace,monospace)}
   .m3d-resin .m3d-rk{color:var(--muted,#64748b)}
   .m3d-resin .m3d-rk b{color:var(--ink,inherit);font-weight:600}
@@ -280,6 +284,7 @@ details ul{font-size:13.5px;color:var(--muted);margin:8px 0 0;padding-left:18px}
         <input id="m3dlayer" type="range" min="0" max="59" step="1" value="0" style="flex:1;min-width:160px" aria-label="Couche à visualiser">
       </div>
       <div class="m3d-evts" id="m3devts"></div>
+      <div class="m3d-sig" id="m3dsig"></div>
       <div class="m3d-ctl" style="gap:14px">
         <label><span id="m3drhlbl">Hauteur de résine</span> <output id="m3drho"></output></label>
         <input id="m3drh" type="range" min="3" max="40" step="0.5" value="8" style="flex:1;min-width:110px" aria-label="Hauteur de résine">
@@ -1060,6 +1065,7 @@ Object.assign(I18N,{
 "×Max":["×Max","×最大"],
 "Écran LCD simulé":["Simulated LCD screen","模拟 LCD 屏幕"],
 "Capteurs (live)":["Sensors (live)","传感器（实时）"],
+"Fusion":["Fusion","融合"],
 "Échelle auto":["Auto scale","自动刻度"],
 "Échelle fixe":["Fixed scale","固定刻度"],
 "Plateau au contact de la résine":["Plate touching the resin","平台接触树脂"],
@@ -1599,7 +1605,7 @@ function initM3D(){
   const PH_NAME={4:'Attente en bas',0:'Exposition',1:'Arrachement',3:'Attente en haut',2:'Descente'};
   const FLAGLAB={crash:'blocage / écrasement',obstacle:'obstacle à la descente',appui:'appui résiduel (corps étranger)',faible:'arrachement trop faible',fep:'film détendu'};
   const FLAGCOL={crash:'#ff3b30',obstacle:'#ff9f0a',appui:'#ffd60a',faible:'#ff6482',fep:'#64d2ff'};
-  const M={tcur:0,totalT:0,playing:true,speed:10,nl:0,sig:'',SC:0.01,VLH:0.02,liftH:6,partCX:0,partCZ:0,fScale:20,fLo:-1,fHi:1,scaleFixed:false,faults:{},primary:null,parts:[],built:false,bound:false,speedBuilt:false,lastRAF:0,curI:0,curPh:4,curLy:0,cam:{az:0.8,el:0.34,rad:4.3},drag:null,lastW:0,lastH:0};
+  const M={tcur:0,totalT:0,playing:true,speed:10,nl:0,sig:'',SC:0.01,VLH:0.02,liftH:6,partCX:0,partCZ:0,fScale:20,fLo:-1,fHi:1,scaleFixed:false,scopeSel:{'true':true,z:true,vat:true,sg:true,fus:true},faults:{},primary:null,parts:[],built:false,bound:false,speedBuilt:false,sigBuilt:false,lastRAF:0,curI:0,curPh:4,curLy:0,cam:{az:0.8,el:0.34,rad:4.3},drag:null,lastW:0,lastH:0};
 
   // ---- recherches dans les séries ----
   function idx(t){const xs=STATE.sim.T;let lo=0,hi=xs.length-1;if(t<=xs[0])return 0;if(t>=xs[hi])return hi;while(hi-lo>1){const m=(lo+hi)>>1;if(xs[m]<=t)lo=m;else hi=m;}return lo;}
@@ -1894,14 +1900,16 @@ function initM3D(){
     const win=Math.max(0.35,Math.min(total,sp*5)),t1=Math.min(total,M.te+0.18*win),t0=t1-win;
     const padL=5,padR=5,padT=13,padB=5,plotW=W-padL-padR,plotH=H-padT-padB;
     const X=t=>padL+(t-t0)/win*plotW;
-    const i0=idx(t0),i1=idx(t1),fstep=Math.max(1,(i1-i0)/400|0);
+    const i0=idx(t0),i1=idx(t1),fstep=Math.max(1,(i1-i0)/400|0),sel=M.scopeSel||{'true':1,z:1,vat:1,sg:1,fus:1};
+    const lb=(xs,t)=>{if(!xs.length)return 0;let lo2=0,hi2=xs.length-1;while(lo2<hi2){const m=(lo2+hi2+1)>>1;if(xs[m]<=t)lo2=m;else hi2=m-1;}return lo2;}; // dernière valeur <= t
     let lo,hi;
     if(M.scaleFixed){lo=M.fLo;hi=M.fHi;}                        // échelle fixe : amplitude de tout le tirage
-    else{                                                       // échelle auto : min/max de la fenêtre visible
+    else{                                                       // échelle auto : min/max des signaux affichés
       lo=1e9;hi=-1e9;
-      for(let i=i0;i<=i1;i+=fstep){const v=sim.F[i];if(v<lo)lo=v;if(v>hi)hi=v;}
-      const scan=ch=>{const xs=ch.t,fs=ch.f;for(let k=0;k<xs.length;k++){if(xs[k]<t0)continue;if(xs[k]>t1)break;if(fs[k]<lo)lo=fs[k];if(fs[k]>hi)hi=fs[k];}};
-      scan(STATE.s.zc);scan(STATE.s.vat);
+      if(sel['true'])for(let i=i0;i<=i1;i+=fstep){const v=sim.F[i];if(v<lo)lo=v;if(v>hi)hi=v;}
+      const scan=ch=>{const xs=ch.t,fs=ch.f;for(let k=lb(xs,t0);k<xs.length;k++){if(fs[k]<lo)lo=fs[k];if(fs[k]>hi)hi=fs[k];if(xs[k]>=t1)break;}};
+      if(sel.z)scan(STATE.s.zc);if(sel.vat)scan(STATE.s.vat);if(sel.fus)scan(STATE.s.fus);if(sel.sg)scan(STATE.s.sg);
+      if(lo>hi){lo=-1;hi=1;}
     }
     if(!(hi>lo)){lo=-1;hi=1;}const pd=(hi-lo)*0.12+0.05;lo-=pd;hi+=pd;
     const Y=v=>padT+(1-(v-lo)/(hi-lo))*plotH;
@@ -1911,13 +1919,13 @@ function initM3D(){
     if(s>=0)g.fillRect(X(sim.T[s]),padT,Math.max(1,X(sim.T[i1])-X(sim.T[s])),plotH);
     // ligne zéro
     if(lo<0&&hi>0){g.strokeStyle='rgba(255,255,255,.18)';g.lineWidth=1;g.beginPath();g.moveTo(padL,Y(0));g.lineTo(W-padR,Y(0));g.stroke();}
-    const poly=(it,col,wdt)=>{g.strokeStyle=col;g.lineWidth=wdt;g.beginPath();let st=false;it((t,v)=>{if(v==null||t<t0||t>t1)return;const x=X(t),y=Y(v);if(st)g.lineTo(x,y);else{g.moveTo(x,y);st=true;}});g.stroke();};
-    poly(cb=>{for(let i=i0;i<=i1;i+=fstep)cb(sim.T[i],sim.F[i]);},(css('--s-true')||'#9aa4bb'),1);
-    const chLine=(ch,col)=>poly(cb=>{const xs=ch.t,fs=ch.f;for(let k=0;k<xs.length;k++){if(xs[k]<t0)continue;if(xs[k]>t1)break;cb(xs[k],fs[k]);}},col,1.5);
-    chLine(STATE.s.zc,css('--s-z')||'#ffd54a');
-    chLine(STATE.s.vat,css('--s-vat')||'#4ad5c0');
-    // StallGuard : points (muet à l'arrêt)
-    {const xs=STATE.s.sg.t,fs=STATE.s.sg.f;g.fillStyle=css('--s-sg')||'#ff8a5c';g.globalAlpha=0.5;for(let k=0;k<xs.length;k++){if(xs[k]<t0)continue;if(xs[k]>t1)break;g.beginPath();g.arc(X(xs[k]),Y(fs[k]),1,0,7);g.fill();}g.globalAlpha=1;}
+    // tracé continu : on part de l'échantillon juste avant t0 jusqu'à juste après t1 (bord à bord)
+    const chLine=(ch,col)=>{const xs=ch.t,fs=ch.f;if(!xs.length)return;g.strokeStyle=col;g.lineWidth=1.5;g.beginPath();let st=false;for(let k=lb(xs,t0);k<xs.length;k++){const x=X(xs[k]),y=Y(fs[k]);if(st)g.lineTo(x,y);else{g.moveTo(x,y);st=true;}if(xs[k]>=t1)break;}g.stroke();};
+    if(sel['true']){g.strokeStyle=css('--s-true')||'#9aa4bb';g.lineWidth=1;g.beginPath();let st=false;for(let i=i0;i<=i1;i+=fstep){const x=X(sim.T[i]),y=Y(sim.F[i]);if(st)g.lineTo(x,y);else{g.moveTo(x,y);st=true;}}g.stroke();}
+    if(sel.z)chLine(STATE.s.zc,css('--s-z')||'#ffd54a');
+    if(sel.vat)chLine(STATE.s.vat,css('--s-vat')||'#4ad5c0');
+    if(sel.fus)chLine(STATE.s.fus,M.fusCol||'#b794f6');
+    if(sel.sg){const xs=STATE.s.sg.t,fs=STATE.s.sg.f;g.fillStyle=css('--s-sg')||'#ff8a5c';g.globalAlpha=0.5;for(let k=lb(xs,t0);k<xs.length;k++){if(xs[k]>t1)break;if(xs[k]<t0)continue;g.beginPath();g.arc(X(xs[k]),Y(fs[k]),1,0,7);g.fill();}g.globalAlpha=1;}
     // curseur « maintenant »
     g.strokeStyle='#ffffff';g.lineWidth=1;g.beginPath();g.moveTo(X(M.te),padT);g.lineTo(X(M.te),H-padB);g.stroke();
     // titre + repères d'échelle
@@ -1974,6 +1982,7 @@ function initM3D(){
     setTxt('m3dspeedlbl',T('Vitesse'));
     const sc=$('m3dscale');if(sc){sc.textContent=T(M.scaleFixed?'Échelle fixe':'Échelle auto');sc.classList.toggle('on',M.scaleFixed);}
     setTxt('m3drhlbl',T('Hauteur de résine'));setTxt('m3drllbl',T('Fuite'));
+    const sig=$('m3dsig');if(sig&&M.sigDefs)Array.prototype.forEach.call(sig.children,(bt,i)=>{const k=M.sigDefs[i][0],l=bt.querySelector('.lbl');if(l)l.textContent=T(M.sigDefs[i][1]);bt.classList.toggle('off',!M.scopeSel[k]);});
     const rh=$('m3drh');if(rh)setTxt('m3drho',rh.value+' mm');
     const rl=$('m3drl');if(rl)setTxt('m3drlo',(+rl.value===0?T('aucune'):rl.value+' ml/h'));
     const seg=$('m3dspeed');
@@ -1988,6 +1997,14 @@ function initM3D(){
     const pb=$('m3dplay');if(pb)pb.onclick=()=>{M.playing=!M.playing;M.lastRAF=0;upPlay();};
     const sf=$('m3dstepf'),sb=$('m3dstepb');if(sf)sf.onclick=()=>stepPhase(1);if(sb)sb.onclick=()=>stepPhase(-1);
     const sc=$('m3dscale');if(sc)sc.onclick=()=>{M.scaleFixed=!M.scaleFixed;labels();};
+    const sig=$('m3dsig');
+    if(sig&&!M.sigBuilt){M.sigBuilt=true;sig.innerHTML='';
+      M.sigDefs=[['true','Force réelle',css('--s-true')||'#9aa4bb'],['z','Cellule bras Z',css('--s-z')||'#ffd54a'],['vat','4 cellules bac (somme)',css('--s-vat')||'#4ad5c0'],['sg','StallGuard (estimé)',css('--s-sg')||'#ff8a5c'],['fus','Fusion',M.fusCol||'#b794f6']];
+      for(const d of M.sigDefs){const k=d[0],bt=document.createElement('button');bt.dataset.k=k;
+        bt.innerHTML='<span class="dot" style="background:'+d[2]+'"></span><span class="lbl"></span>';
+        bt.onclick=()=>{M.scopeSel[k]=!M.scopeSel[k];bt.classList.toggle('off',!M.scopeSel[k]);};
+        sig.appendChild(bt);}
+    }
     const rh=$('m3drh');if(rh)rh.oninput=()=>setTxt('m3drho',rh.value+' mm');
     const rl=$('m3drl');if(rl)rl.oninput=()=>setTxt('m3drlo',(+rl.value===0?T('aucune'):rl.value+' ml/h'));
     const tl=$('m3dtime');if(tl)tl.oninput=e=>{M.playing=false;upPlay();M.tcur=M.playT*(+e.target.value/1000);};
